@@ -6,6 +6,7 @@ local player_data
 local _action_bank_id
 local _action_id
 local _pre_action_id
+local _pre_node_id
 local _action_frame
 local _current_node
 local _muteki_time
@@ -14,6 +15,8 @@ local _atk
 local _affinity
 local _replace_atk_data = {}
 local _wep_type
+
+local _derive_start_frame = 0
 
 local _should_draw_ui
 
@@ -65,15 +68,27 @@ yun_modules.direction = {
     LeftDown = 7
 }
 
-local function on_action_change()
-    PlayerMotionCtrl = master_player:get_field("_RefPlayerMotionCtrl")
-    if _action_id ~= PlayerMotionCtrl:call("get_OldMotionID") then
-        _pre_action_id = _action_id
-        _action_id = PlayerMotionCtrl:call("get_OldMotionID")
-        _action_bank_id = PlayerMotionCtrl:call("get_OldBankID")
-        return _action_id
-    end
-end
+local hit_counter_info = {}
+local counter_success = false
+local hit_success = false
+local need_hit_info = {}
+sdk.hook(sdk.find_type_definition("snow.player.PlayerMotionControl"):get_method("lateUpdate"),
+    function(args)
+        local this = sdk.to_managed_object(args[2])
+        local PlayerBase = this:get_field("_RefPlayerBase")
+
+        if PlayerBase:isMasterPlayer() then
+            if _action_id ~= this:get_field("_OldMotionID") then
+                _pre_action_id = _action_id
+                _action_id = this:get_field("_OldMotionID")
+                hit_counter_info = {}
+                need_hit_info = {}
+                counter_success = false
+                hit_success = false
+            end
+            _action_bank_id = this:get_field("_OldBankID")
+        end
+    end)
 
 local function get_game_data()
     master_player_index = master_player:get_field("_PlayerIndex")
@@ -83,7 +98,10 @@ local function get_game_data()
     _wep_type = master_player:get_field("_playerWeaponType")
     _should_draw_ui = yun_modules.enabled() and not yun_modules.is_pausing() and yun_modules.should_hud_show()
     _atk = player_data:get_field("_Attack")
-    _current_node = mPlBHVT:call("getCurrentNodeID", 0)
+    if _current_node ~= mPlBHVT:call("getCurrentNodeID", 0) then
+        _pre_node_id = _current_node
+        _current_node = mPlBHVT:call("getCurrentNodeID", 0)
+    end
     _action_frame = master_player:call("getMotionLayer", 0):call("get_Frame")
     _affinity = player_data:get_field("_CriticalRate")
     _muteki_time = master_player:get_field("_MutekiTime")
@@ -91,7 +109,6 @@ local function get_game_data()
         master_player:get_field("_replaceAttackTypeC"), master_player:get_field("_replaceAttackTypeD"),
         master_player:get_field("_replaceAttackTypeE"), master_player:get_field("_replaceAttackTypeF") }
     _hyper_armor_time = master_player:get_field("_HyperArmorTimer")
-    on_action_change()
 end
 
 function yun_modules.check_using_weapon_type(tar_type)
@@ -435,6 +452,7 @@ function yun_modules.check_input_by_isCmd(cmd)
     return master_player:call('get_RefPlayerInput'):call("isCmd", sdk.to_ptr(cmd))
 end
 
+--已弃用，性能太差，尽量避免使用。已有更好的方法
 function yun_modules.analog_derive(tar_action_id, tar_action_bank_id, tar_cmd, is_by_isCmd, tar_lstick_dir,
                                    is_by_player_dir, pre_frame, start_frame, turn_range, tar_node_hash, jmp_frame)
     local derive = {}
@@ -492,7 +510,7 @@ function yun_modules.analog_derive(tar_action_id, tar_action_bank_id, tar_cmd, i
     end
 
     function derive.analog_jmp_frame()
-        if derive.tar_node_hash == yun_modules.get_current_node() and derive.jmp_frame ~= nil and pre_action_id == derive.tar_action_id and yun_modules.get_now_action_frame() > 0.0 and yun_modules.get_now_action_frame() < derive.jmp_frame then
+        if derive.tar_node_hash == yun_modules.get_current_node() and derive.jmp_frame ~= nil and _pre_action_id == derive.tar_action_id and yun_modules.get_now_action_frame() > 0.0 and yun_modules.get_now_action_frame() < derive.jmp_frame then
             yun_modules.set_now_action_frame(derive.jmp_frame)
         end
     end
@@ -581,6 +599,300 @@ sdk.hook(sdk.find_type_definition("snow.player.SlashAxe"):get_method("getAdjustS
     end
 )
 
+yun_modules.hook_evaluate_post = {}
+function yun_modules.push_evaluate_post_functions(func)
+    if type(func) == "function" then
+        table.insert(yun_modules.hook_evaluate_post, func)
+    end
+end
+
+local ignore_keys = {}
+local this_derive_cmd = 0
+local this_is_by_action_id = true
+sdk.hook(
+    sdk.find_type_definition("snow.player.fsm.PlayerFsm2CommandBase"):get_method("evaluate"),
+    function(args)
+        local storage = thread.get_hook_storage()
+        storage["commandbase"] = sdk.to_managed_object(args[2])
+        storage["commandarg"] = sdk.to_managed_object(args[3])
+        storage["cmdplayer"] = sdk.to_managed_object(args[2]):getPlayerBase(sdk.to_managed_object(args[3]))
+    end,
+    function(retval)
+        local commandbase = thread.get_hook_storage()["commandbase"]
+        local commandarg = thread.get_hook_storage()["commandarg"]
+        local cmdplayer = thread.get_hook_storage()["cmdplayer"]
+        if cmdplayer:isMasterPlayer() then
+            if sdk.to_int64(retval) == 1 then
+                local cmd_type = commandbase:get_field("CmdType")
+                this_derive_cmd = cmd_type
+                if this_is_by_action_id and ignore_keys[_action_id] ~= nil then
+                    for _, value in ipairs(ignore_keys[_action_id]) do
+                        --re.msg(value)
+                        if cmd_type == value then
+                            return sdk.to_ptr(0)
+                        end
+                    end
+                elseif not this_is_by_action_id and ignore_keys[_current_node] ~= nil then
+                    for _, value in ipairs(ignore_keys[_current_node]) do
+                        --re.msg(value)
+                        if cmd_type == value then
+                            return sdk.to_ptr(0)
+                        end
+                    end
+                end
+                if commandbase:get_field("StartFrame") > 1 then
+                    _derive_start_frame = commandbase:get_field("StartFrame")
+                end
+                for _, func in ipairs(yun_modules.hook_evaluate_post) do
+                    retval = func(retval, commandbase, commandarg)
+                end
+            end
+        end
+        return retval
+    end
+)
+
+--新的派生工具案例
+local dataTable_exam = {
+    [yun_modules.weapon_type.LongSword] = {              --武器类型,LongSword = 太刀，其他武器名称请自行查看yun_modules.weapon_type的定义
+        [101] = {                                        --动作ID，或者NodeID，需要进行模拟派生的动作标识
+            ["targetNode"] = 0x66666666,                 --必要条件，派生目标的nodeID，只能通过nodeID来进行指定派生，想派生的动作请自己查询nodeID
+            ["preFrame"] = 10.0,                         --非必要条件，默认值为10。派生提前接受输入的帧数，通俗来讲就是预输入.
+            ["startFrame"] = 100.0,                      --非必要条件，默认为“当前动作最早可以派生的原始帧数”。派生开始进行的帧数，当进行输入之后，动作进行到这个帧数以后就会派生下一个动作。
+            ["targetCmd"] = 5,                           --非必要条件，默认为nil。派生的按键判定，就是需要按下哪个键位，就进行派生.如果不指定键位，则会在帧数进行到可以派生的帧数之后自动派生。
+            ["isHolding"] = false,                       --非必要条件，默认为false。注意！此选项会影响按键判定的方式，并且判定ID也会改变.按键判定是否接受按住，如果为true，则按键持续按住也会触发判定.
+            ["tarLstickDir"] = yun_modules.direction.Up, --非必要条件，默认为nil。派生的摇杆判定，如果此选项有数值，推着摇杆朝对应的方向才进行派生。
+            ["isByPlayerDir"] = true,                    --非必要选项，默认为true。和上一条联动的条件，推摇杆的方向基准是以角色朝向还是以屏幕朝向。
+            ["turnRange"] = 30.0,                        --非必要选项，默认为nil。派生可以转向的幅度，单位为度，数值对应一侧。比如填30就是左右30度也就是面前60度可以转向。填180就是全方向。不填就不可以转向。
+            ["jmpFrame"] = 30.0,                         --非必要选项，默认为nil。派生跳帧的数值，所谓跳帧就是派生到下一个动作之后，从多少帧开始播放动作。
+            ["preActionId"] = 101,                       --非必要选项，默认为nil。增加需要上一个动作和当前动作符合才进行派生的条件。
+            ["preNodeId"] = 0x66666666,                  --非必要选项，默认为nil。增加需要上一个动作node和当前动作符合才进行派生的条件。
+            ["needIgnoreOriginalKey"] = false,           --非必要选项，默认为false。如果你的新派生是替换原有的按键的派生，请设置为true。这会忽略原有的同按键的派生。
+            ["counterAtk"] = { true, 2, { 0, 20.0 } },   --非必要选项，默认为{false,0,{0,0}}。是否当身派生，第一项为派生开关，第二项为可以抵挡伤害的次数，第三项为当身判定的起始和结束帧。如果为true同时第二项大于0，则会在动作进行期间进行当身判定，受到伤害就会派生。如果第一项为false，第二项大于0，则只会抵挡伤害而不会派生。
+            ["hit"] = true,                              --非必要选项，默认为nil。是否为攻击派生。如果为true，则会在攻击命中的时候派生。
+            ["useWire"] = { 1, 300.0 },                  --非必要选项，默认为nil。翔虫的冷却，第一个是消耗的个数，第二个是冷却时间。
+        },
+    }
+}
+
+yun_modules.deriveTable = {}
+function yun_modules.push_derive_table(derive_table)
+    if type(derive_table) == "table" then
+        table.insert(yun_modules.deriveTable, derive_table)
+    end
+end
+
+local function deepCopy(orig)
+    local copy
+    if type(orig) == "table" then
+        copy = {}
+        for k, v in next, orig, nil do
+            copy[deepCopy(k)] = deepCopy(v)
+        end
+        setmetatable(copy, deepCopy(getmetatable(orig)))
+    else -- 不是表，直接复制
+        copy = orig
+    end
+    return copy
+end
+
+local input_cache = 0
+local jmp_frame_cache = 0
+local jmp_frame_node = 0
+--新的派生工具循环器
+local function derive_wrapper(derive_table)
+    if not master_player then return end
+    --if _action_bank_id ~= 100 then return end
+    local now_action_table
+    local this_id
+    for _, sub_derive_table in ipairs(derive_table) do
+        if sub_derive_table[_wep_type] ~= nil then
+            --re.msg("get weapon")
+            now_action_table = sub_derive_table[_wep_type][_action_id]
+            this_id = _action_id
+            this_is_by_action_id = true
+            if now_action_table == nil then
+                now_action_table = sub_derive_table[_wep_type][_current_node]
+                this_id = _current_node
+                this_is_by_action_id = false
+            end
+        end
+        if now_action_table == nil then
+            goto continue2
+        end
+        for index, subtable in ipairs(now_action_table) do
+            --re.msg(index)
+            local _targetNode = subtable['targetNode']
+            local _preFrame = subtable['preFrame'] or 10.0
+            local _startFrame = subtable['startFrame'] or _derive_start_frame
+            local _targetCmd = subtable['targetCmd']
+            local _isHolding = subtable['isHolding']
+            local _tarLstickDir = subtable['tarLstickDir']
+            local _isByPlayerDir = subtable['isByPlayerDir']
+            local _turnRange = subtable['turnRange']
+            local _jmpFrame = subtable['jmpFrame']
+            local _preActionId = subtable['preActionId']
+            local _preNodeId = subtable['preNodeId']
+            local _useWire = subtable['useWire']
+            if _preActionId ~= nil and _pre_action_id ~= _preActionId then
+                goto continue
+            end
+            if _preNodeId ~= nil and _pre_node_id ~= _preNodeId then
+                goto continue
+            end
+            if subtable['counterAtk'] ~= nil and hit_counter_info[1] == nil then
+                hit_counter_info = deepCopy(subtable['counterAtk'])
+            end
+            if subtable['hit'] ~= nil then
+                need_hit_info = { _action_id, _startFrame }
+            end
+            if subtable['needIgnoreOriginalKey'] ~= nil then
+                ignore_keys[this_id] = {}
+                table.insert(ignore_keys[this_id], subtable['needIgnoreOriginalKey'])
+                subtable['needIgnoreOriginalKey'] = nil
+            end
+            if _targetNode == nil then
+                goto continue
+            end
+            if subtable['hit'] == nil and subtable['counterAtk'] == nil then
+                if _startFrame - _preFrame < _action_frame then
+                    if _tarLstickDir ~= nil then
+                        if _useWire ~= nil then
+                            if _useWire[1] > master_player:getUsableHunterWireNum() then
+                                goto continue
+                            end
+                        end
+                        if _isByPlayerDir == nil or _isByPlayerDir then
+                            if not yun_modules.check_lstick_dir_for_player_only_quad(_tarLstickDir) then
+                                goto continue
+                            end
+                        elseif not _isByPlayerDir then
+                            if not yun_modules.check_lstick_dir(_tarLstickDir) then
+                                goto continue
+                            end
+                        end
+                    end
+                    if input_cache == 0 then
+                        if not _isHolding then
+                            if yun_modules.check_input_by_isCmd(_targetCmd) then
+                                input_cache = _targetNode
+                            end
+                        else
+                            if yun_modules.check_input_by_isOn(_targetCmd) then
+                                input_cache = _targetNode
+                            end
+                        end
+                    end
+                    if _targetCmd == nil then
+                        input_cache = _targetNode
+                    end
+                end
+                if _startFrame < _action_frame then
+                    if input_cache ~= 0 then
+                        if _useWire ~= nil then
+                            master_player:useHunterWireGauge(_useWire[1], _useWire[2])
+                        end
+                        yun_modules.set_current_node(input_cache)
+                        input_cache = 0
+                        if _turnRange ~= nil then
+                            yun_modules.turn_to_lstick_dir(_turnRange)
+                        end
+                        if _jmpFrame ~= nil then
+                            jmp_frame_cache = _jmpFrame
+                            jmp_frame_node = _targetNode
+                        end
+                        break
+                    end
+                end
+            end
+            if counter_success and subtable['counterAtk'] ~= nil then
+                yun_modules.set_current_node(_targetNode)
+                counter_success = false
+                jmp_frame_cache = _jmpFrame
+                jmp_frame_node = _targetNode
+                break
+            end
+            if hit_success and subtable['hit'] ~= nil then
+                yun_modules.set_current_node(_targetNode)
+                hit_success = false
+                jmp_frame_cache = _jmpFrame
+                jmp_frame_node = _targetNode
+                break
+            end
+            ::continue::
+        end
+
+        if jmp_frame_cache ~= 0 and jmp_frame_node ~= 0 then
+            if jmp_frame_node == _current_node then
+                yun_modules.set_now_action_frame(jmp_frame_cache)
+                jmp_frame_cache = 0
+                jmp_frame_node = 0
+            end
+        end
+        ::continue2::
+    end
+end
+
+
+if hit_counter_info ~= {} and hit_counter_info ~= nil then
+    if hit_counter_info[3] ~= nil and hit_counter_info[3][1] < _action_frame and hit_counter_info[3][2] > _action_frame then
+        if hit_counter_info[2] > 0 then
+            hit_counter_info[2] = hit_counter_info[2] - 1
+            if hit_counter_info[1] then
+                counter_success = true
+            end
+            return sdk.to_ptr(2)
+        end
+    end
+end
+
+sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("checkCalcDamage_DamageSide"),
+    function(args)
+        local storage = thread.get_hook_storage()
+        storage["refPlayer"] = sdk.to_managed_object(args[2])
+        storage["damageData"] = sdk.to_managed_object(args[3]):get_AttackData()
+    end,
+    function(retval)
+        if not thread.get_hook_storage()["refPlayer"]:isMasterPlayer() then
+            return retval
+        end
+        local dmgOwnerType = thread.get_hook_storage()["damageData"]:get_OwnerType()
+        if (dmgOwnerType == 1 or dmgOwnerType == 0) then --props and enemy
+            if type(hit_counter_info) == "table" and next(hit_counter_info) then
+                local frameInfo = hit_counter_info[3]
+                -- 确认第三项存在且_action_frame在指定范围内
+                if frameInfo and _action_frame > frameInfo[1] and _action_frame < frameInfo[2] then
+                    if hit_counter_info[2] > 0 then
+                        hit_counter_info[2] = hit_counter_info[2] - 1
+                        if hit_counter_info[1] then
+                            counter_success = true
+                        end
+                        return sdk.to_ptr(2)
+                    end
+                end
+            end
+        end
+        return retval
+    end
+)
+sdk.hook(
+    sdk.find_type_definition("snow.enemy.EnemyCharacterBase"):get_method("afterCalcDamage_DamageSide"),
+    function(args)
+        if need_hit_info ~= {} and need_hit_info ~= nil then
+            if need_hit_info[1] == _action_id
+                and need_hit_info[2] <= _derive_start_frame then
+                hit_success = true
+            end
+        end
+    end
+)
+
+sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("update"),
+    function(args)
+        derive_wrapper(yun_modules.deriveTable)
+    end
+)
+
 --任意ONframe函数应该改为在此调用
 re.on_pre_application_entry("UpdateScene", function()
     if not PlayerManager then
@@ -592,15 +904,42 @@ re.on_pre_application_entry("UpdateScene", function()
         CameraManager = sdk.get_managed_singleton("snow.CameraManager")
     end
     if not CameraManager then return end
-    if not master_player then return end
+    if not master_player or not master_player:isMasterPlayer() then
+        master_player = nil
+        return
+    end
     get_game_data()
 end)
+
+local function tableToString(tbl, indent)
+    local indent = indent or ""
+    local result = {}
+    if tbl == nil then return "nil" end
+    for key, value in pairs(tbl) do
+        table.insert(result, string.format("%s%s: ", indent, tostring(key)))
+        if type(value) == "table" then
+            table.insert(result, "\n" .. tableToString(value, indent .. "  "))
+        else
+            table.insert(result, tostring(value) .. "\n")
+        end
+    end
+
+    return table.concat(result)
+end
+
+local function printTableWithImGui(tbl)
+    local str = tableToString(tbl)
+    for line in string.gmatch(str, "[^\r\n]+") do
+        imgui.text(line)
+    end
+end
 
 local pad_vibration_id = 0
 local pad_vibration_is_loop = false
 re.on_draw_ui(function()
     if imgui.tree_node("YUN_DEBUGS") then
         if not master_player then return end
+        printTableWithImGui(ignore_keys)
         if imgui.tree_node("BASE DATA") then
             --imgui.text("my timer",my_timer:get_Time())
             --imgui.text("LS gauge = "..master_player:get_LongSwordGauge()..", LS lv = "..master_player:get_LongSwordGaugeLv())
@@ -622,6 +961,8 @@ re.on_draw_ui(function()
             -- end
 
             imgui.drag_int("weapon_type", _wep_type)
+
+            imgui.drag_int("action_bank_id", _action_bank_id)
 
             imgui.drag_int("action_id", _action_id)
 
@@ -680,6 +1021,11 @@ re.on_draw_ui(function()
             if imgui.button("vibration ID --") then
                 pad_vibration_id = pad_vibration_id - 1
             end
+            imgui.tree_pop()
+        end
+
+        if imgui.tree_node("DERIVE DATA") then
+            imgui.text("this_derive_cmd = " .. this_derive_cmd)
             imgui.tree_pop()
         end
         -- imgui.drag_float("mHitStopTimer", master_player:get_field("mHitStopTimer"))
