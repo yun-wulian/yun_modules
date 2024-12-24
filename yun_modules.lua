@@ -68,10 +68,18 @@ yun_modules.direction = {
     LeftDown = 7
 }
 
+local function SetPlayerTimeScale(value)
+	if master_player:call("get_GameObject") == nil then return end
+	master_player:call("get_GameObject"):call("set_TimeScale", value)
+end
+
 local hit_counter_info = {}
-local counter_success = false
-local hit_success = false
 local need_hit_info = {}
+local hit_success = -1
+local counter_success = false
+local jmp_frame_cache = 0
+local jmp_frame_node = 0
+local need_speed_change = {false}
 sdk.hook(sdk.find_type_definition("snow.player.PlayerMotionControl"):get_method("lateUpdate"),
     function(args)
         local this = sdk.to_managed_object(args[2])
@@ -83,8 +91,10 @@ sdk.hook(sdk.find_type_definition("snow.player.PlayerMotionControl"):get_method(
                 _action_id = this:get_field("_OldMotionID")
                 hit_counter_info = {}
                 need_hit_info = {}
+                jmp_frame_cache = 0
+                jmp_frame_node = 0
                 counter_success = false
-                hit_success = false
+                hit_success = -1
             end
             _action_bank_id = this:get_field("_OldBankID")
         end
@@ -101,6 +111,9 @@ local function get_game_data()
     if _current_node ~= mPlBHVT:call("getCurrentNodeID", 0) then
         _pre_node_id = _current_node
         _current_node = mPlBHVT:call("getCurrentNodeID", 0)
+        if need_speed_change[2] ~= _current_node then
+            need_speed_change = {false}
+        end
     end
     _action_frame = master_player:call("getMotionLayer", 0):call("get_Frame")
     _affinity = player_data:get_field("_CriticalRate")
@@ -624,17 +637,16 @@ sdk.hook(
         if cmdplayer:isMasterPlayer() then
             if sdk.to_int64(retval) == 1 then
                 local cmd_type = commandbase:get_field("CmdType")
+                local transition = commandarg:get_TransitionID()
                 this_derive_cmd = cmd_type
                 if this_is_by_action_id and ignore_keys[_action_id] ~= nil then
                     for _, value in ipairs(ignore_keys[_action_id]) do
-                        --re.msg(value)
                         if cmd_type == value then
                             return sdk.to_ptr(0)
                         end
                     end
                 elseif not this_is_by_action_id and ignore_keys[_current_node] ~= nil then
                     for _, value in ipairs(ignore_keys[_current_node]) do
-                        --re.msg(value)
                         if cmd_type == value then
                             return sdk.to_ptr(0)
                         end
@@ -670,7 +682,9 @@ local dataTable_exam = {
             ["needIgnoreOriginalKey"] = false,           --非必要选项，默认为false。如果你的新派生是替换原有的按键的派生，请设置为true。这会忽略原有的同按键的派生。
             ["counterAtk"] = { true, 2, { 0, 20.0 } },   --非必要选项，默认为{false,0,{0,0}}。是否当身派生，第一项为派生开关，第二项为可以抵挡伤害的次数，第三项为当身判定的起始和结束帧。如果为true同时第二项大于0，则会在动作进行期间进行当身判定，受到伤害就会派生。如果第一项为false，第二项大于0，则只会抵挡伤害而不会派生。
             ["hit"] = true,                              --非必要选项，默认为nil。是否为攻击派生。如果为true，则会在攻击命中的时候派生。
+            ["hitLag"] = 5.0,                            --非必要选项，默认为nil。攻击命中之后派生的延迟帧数，用于动作美观性的优化。
             ["useWire"] = { 1, 300.0 },                  --非必要选项，默认为nil。翔虫的冷却，第一个是消耗的个数，第二个是冷却时间。
+            ["actionSpeed"] = {1.0, 0.0, 300.0 },        --非必要选项，默认为nil。下一个派生的动作速度。{}中的第一个为速度倍率，第二个为起始帧数，第三个为结束帧数。
         },
     }
 }
@@ -697,10 +711,9 @@ local function deepCopy(orig)
 end
 
 local input_cache = 0
-local jmp_frame_cache = 0
-local jmp_frame_node = 0
 --新的派生工具循环器
 local function derive_wrapper(derive_table)
+    local derive_wrapper = {}
     if not master_player then return end
     --if _action_bank_id ~= 100 then return end
     local now_action_table
@@ -734,6 +747,7 @@ local function derive_wrapper(derive_table)
             local _preActionId = subtable['preActionId']
             local _preNodeId = subtable['preNodeId']
             local _useWire = subtable['useWire']
+            local _actionSpeed = subtable['actionSpeed']
             if _preActionId ~= nil and _pre_action_id ~= _preActionId then
                 goto continue
             end
@@ -754,25 +768,29 @@ local function derive_wrapper(derive_table)
             if _targetNode == nil then
                 goto continue
             end
-            if subtable['hit'] == nil and subtable['counterAtk'] == nil then
-                if _startFrame - _preFrame < _action_frame then
-                    if _tarLstickDir ~= nil then
-                        if _useWire ~= nil then
-                            if _useWire[1] > master_player:getUsableHunterWireNum() then
-                                goto continue
-                            end
-                        end
-                        if _isByPlayerDir == nil or _isByPlayerDir then
-                            if not yun_modules.check_lstick_dir_for_player_only_quad(_tarLstickDir) then
-                                goto continue
-                            end
-                        elseif not _isByPlayerDir then
-                            if not yun_modules.check_lstick_dir(_tarLstickDir) then
-                                goto continue
-                            end
+
+            if _startFrame - _preFrame < _action_frame then
+                if _tarLstickDir ~= nil then
+                    if _useWire ~= nil then
+                        if _useWire[1] > master_player:getUsableHunterWireNum() then
+                            goto continue
                         end
                     end
-                    if input_cache == 0 then
+                    if _isByPlayerDir == nil or _isByPlayerDir then
+                        if not yun_modules.check_lstick_dir_for_player_only_quad(_tarLstickDir) then
+                            goto continue
+                        end
+                    elseif not _isByPlayerDir then
+                        if not yun_modules.check_lstick_dir(_tarLstickDir) then
+                            goto continue
+                        end
+                    end
+                end
+                if input_cache == 0 then
+                    if _targetCmd == nil and subtable['hit'] == nil and subtable['counterAtk'] == nil then
+                        input_cache = _targetNode
+                        re.msg("get no cmd input")
+                    elseif _targetCmd ~= nil then
                         if not _isHolding then
                             if yun_modules.check_input_by_isCmd(_targetCmd) then
                                 input_cache = _targetNode
@@ -783,42 +801,56 @@ local function derive_wrapper(derive_table)
                             end
                         end
                     end
-                    if _targetCmd == nil then
-                        input_cache = _targetNode
-                    end
                 end
-                if _startFrame < _action_frame then
-                    if input_cache ~= 0 then
-                        if _useWire ~= nil then
-                            master_player:useHunterWireGauge(_useWire[1], _useWire[2])
-                        end
-                        yun_modules.set_current_node(input_cache)
-                        input_cache = 0
-                        if _turnRange ~= nil then
-                            yun_modules.turn_to_lstick_dir(_turnRange)
-                        end
-                        if _jmpFrame ~= nil then
-                            jmp_frame_cache = _jmpFrame
-                            jmp_frame_node = _targetNode
-                        end
-                        break
+            end
+            function derive_wrapper.doDerive(target_node)
+                if not target_node then
+                    yun_modules.set_current_node(input_cache)
+                    input_cache = 0
+                    --re.msg("from input_cache")
+                else
+                    yun_modules.set_current_node(target_node)
+                    --re.msg("from target_node")
+                end
+                if _turnRange ~= nil then
+                    yun_modules.turn_to_lstick_dir(_turnRange)
+                end
+                if _jmpFrame ~= nil then
+                    jmp_frame_cache = _jmpFrame
+                    jmp_frame_node = _targetNode
+                end
+                if _actionSpeed ~= nil then
+                    need_speed_change[1] = true
+                    need_speed_change[2] = _targetNode
+                    need_speed_change[3] = _actionSpeed
+                end
+            end
+
+            if _startFrame < _action_frame then
+                if input_cache ~= 0 then
+                    if _useWire ~= nil then
+                        master_player:useHunterWireGauge(_useWire[1], _useWire[2])
                     end
+                    derive_wrapper.doDerive()
+                    break
+                end
+                if hit_success ~= -1 and subtable['hit'] ~= nil then
+                    if subtable['hitLag'] ~= nil then
+                        if hit_success + subtable['hitLag'] > _action_frame then
+                            goto continue
+                        end
+                    end
+                    derive_wrapper.doDerive(_targetNode)
+                    hit_success = -1
+                    break
                 end
             end
             if counter_success and subtable['counterAtk'] ~= nil then
-                yun_modules.set_current_node(_targetNode)
+                derive_wrapper.doDerive()
                 counter_success = false
-                jmp_frame_cache = _jmpFrame
-                jmp_frame_node = _targetNode
                 break
             end
-            if hit_success and subtable['hit'] ~= nil then
-                yun_modules.set_current_node(_targetNode)
-                hit_success = false
-                jmp_frame_cache = _jmpFrame
-                jmp_frame_node = _targetNode
-                break
-            end
+
             ::continue::
         end
 
@@ -830,19 +862,6 @@ local function derive_wrapper(derive_table)
             end
         end
         ::continue2::
-    end
-end
-
-
-if hit_counter_info ~= {} and hit_counter_info ~= nil then
-    if hit_counter_info[3] ~= nil and hit_counter_info[3][1] < _action_frame and hit_counter_info[3][2] > _action_frame then
-        if hit_counter_info[2] > 0 then
-            hit_counter_info[2] = hit_counter_info[2] - 1
-            if hit_counter_info[1] then
-                counter_success = true
-            end
-            return sdk.to_ptr(2)
-        end
     end
 end
 
@@ -878,10 +897,13 @@ sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("che
 sdk.hook(
     sdk.find_type_definition("snow.enemy.EnemyCharacterBase"):get_method("afterCalcDamage_DamageSide"),
     function(args)
+        local hitReceiver = sdk.to_managed_object(args[4])
+        local damageData = hitReceiver:call("get_AttackData")
+		local dmgOwnerType = damageData:call("get_OwnerType")
         if need_hit_info ~= {} and need_hit_info ~= nil then
             if need_hit_info[1] == _action_id
-                and need_hit_info[2] <= _derive_start_frame then
-                hit_success = true
+                and need_hit_info[2] <= _derive_start_frame and dmgOwnerType == 2 then
+                hit_success = _action_frame
             end
         end
     end
@@ -892,6 +914,22 @@ sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("update")
         derive_wrapper(yun_modules.deriveTable)
     end
 )
+
+local function speed_change()
+    if need_speed_change[1] == true then
+        if _action_id == need_speed_change[2] or _current_node == need_speed_change[2] then
+            if _action_frame > need_speed_change[3][2] and _action_frame < need_speed_change[3][3] then
+                SetPlayerTimeScale(need_speed_change[3][1])
+            else
+                SetPlayerTimeScale(-1.0)
+            end
+        else
+            SetPlayerTimeScale(-1.0)
+        end
+    else
+        SetPlayerTimeScale(-1.0)
+    end
+end
 
 --任意ONframe函数应该改为在此调用
 re.on_pre_application_entry("UpdateScene", function()
@@ -909,6 +947,7 @@ re.on_pre_application_entry("UpdateScene", function()
         return
     end
     get_game_data()
+    speed_change()
 end)
 
 local function tableToString(tbl, indent)
@@ -939,7 +978,7 @@ local pad_vibration_is_loop = false
 re.on_draw_ui(function()
     if imgui.tree_node("YUN_DEBUGS") then
         if not master_player then return end
-        printTableWithImGui(ignore_keys)
+        printTableWithImGui(need_speed_change)
         if imgui.tree_node("BASE DATA") then
             --imgui.text("my timer",my_timer:get_Time())
             --imgui.text("LS gauge = "..master_player:get_LongSwordGauge()..", LS lv = "..master_player:get_LongSwordGaugeLv())
@@ -1026,6 +1065,9 @@ re.on_draw_ui(function()
 
         if imgui.tree_node("DERIVE DATA") then
             imgui.text("this_derive_cmd = " .. this_derive_cmd)
+            imgui.text("jmp_frame_node = "..jmp_frame_node)
+            imgui.text("hit_success = "..hit_success)
+            imgui.checkbox("counter_success = ",counter_success)
             imgui.tree_pop()
         end
         -- imgui.drag_float("mHitStopTimer", master_player:get_field("mHitStopTimer"))
