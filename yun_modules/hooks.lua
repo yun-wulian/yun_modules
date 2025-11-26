@@ -1,5 +1,5 @@
 -- yun_modules/hooks.lua
--- SDK hooks management
+-- SDK钩子管理
 
 local hooks = {}
 local core = require("yunwulian.yun_modules.core")
@@ -7,9 +7,9 @@ local action = require("yunwulian.yun_modules.action")
 local derive = require("yunwulian.yun_modules.derive")
 local state = require("yunwulian.yun_modules.state")
 
--- Initialize all SDK hooks
+-- 初始化所有SDK钩子
 function hooks.init()
-    -- Hook for action ID change detection
+    -- 钩子：动作ID改变检测
     sdk.hook(sdk.find_type_definition("snow.player.PlayerMotionControl"):get_method("lateUpdate"),
         function(args)
             local this = sdk.to_managed_object(args[2])
@@ -28,7 +28,7 @@ function hooks.init()
             end
         end)
 
-    -- Hook for attack control
+    -- 钩子：攻击控制
     sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("calcTotalAttack"),
         function(args) end,
         function(retval)
@@ -42,7 +42,7 @@ function hooks.init()
             end
         end)
 
-    -- Hook for affinity control
+    -- 钩子：会心率控制
     sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("calcTotalAffinity"),
         function(args) end,
         function(retval)
@@ -52,7 +52,7 @@ function hooks.init()
             end
         end)
 
-    -- Hook for element damage multiplier
+    -- 钩子：元素伤害倍率
     sdk.hook(
         sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method(
         "getElementSharpnessAdjust(snow.hit.userdata.PlHitAttackRSData, snow.CharacterBase)"),
@@ -66,7 +66,7 @@ function hooks.init()
             return retval
         end)
 
-    -- Hook for stun damage multiplier
+    -- 钩子：眩晕伤害倍率
     sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("getAdjustTotalStunAttack(System.Single)"),
         function(args) end,
         function(retval)
@@ -78,7 +78,7 @@ function hooks.init()
             return retval
         end)
 
-    -- Hook for stamina damage multiplier
+    -- 钩子：耐力伤害倍率
     sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("getAdjustTotalStaminaAttack(System.Single)"),
         function(args) end,
         function(retval)
@@ -90,14 +90,14 @@ function hooks.init()
             return retval
         end)
 
-    -- Hook for loading screen detection
+    -- 钩子：加载屏幕检测
     sdk.hook(sdk.find_type_definition("snow.NowLoading"):get_method("update"), function(args)
             local this = sdk.to_managed_object(args[2])
             core.is_loading_visiable = this:call("getVisible")
         end,
         function(retval) return retval end)
 
-    -- Hook for quest status change
+    -- 钩子：任务状态改变
     sdk.hook(sdk.find_type_definition("snow.QuestManager"):get_method("onChangedGameStatus"),
         function(args)
             local new_quest_status = sdk.to_int64(args[3])
@@ -114,7 +114,7 @@ function hooks.init()
         end,
         function(retval) return retval end)
 
-    -- Hook for motion value tracking (general)
+    -- 钩子：动作值追踪（通用）
     sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("getAdjustStunAttack"),
         function(args)
             local this = sdk.to_managed_object(args[2])
@@ -125,7 +125,7 @@ function hooks.init()
             end
         end)
 
-    -- Hook for motion value tracking (SlashAxe specific)
+    -- 钩子：动作值追踪（斩击斧特定）
     sdk.hook(sdk.find_type_definition("snow.player.SlashAxe"):get_method("getAdjustStunAttack"),
         function(args)
             local this = sdk.to_managed_object(args[2])
@@ -136,7 +136,7 @@ function hooks.init()
             end
         end)
 
-    -- Hook for command evaluation (key press detection)
+    -- 钩子：命令评估（按键按下检测）
     sdk.hook(
         sdk.find_type_definition("snow.player.fsm.PlayerFsm2CommandBase"):get_method("evaluate"),
         function(args)
@@ -182,7 +182,7 @@ function hooks.init()
             return retval
         end)
 
-    -- Hook for counter attack detection
+    -- 钩子：反击检测
     sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("checkCalcDamage_DamageSide"),
         function(args)
             local storage = thread.get_hook_storage()
@@ -212,7 +212,7 @@ function hooks.init()
             return retval
         end)
 
-    -- Hook for hit detection
+    -- 钩子：命中检测
     sdk.hook(
         sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method(
         "afterCalcDamage_AttackSide(snow.hit.DamageFlowInfoBase, snow.DamageReceiver.HitInfo)"),

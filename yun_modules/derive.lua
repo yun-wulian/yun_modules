@@ -1,5 +1,5 @@
 -- yun_modules/derive.lua
--- Derive system for action transitions and combos
+-- 派生系统，用于动作转换和连招
 
 local derive = {}
 local core = require("yunwulian.yun_modules.core")
@@ -8,44 +8,46 @@ local input = require("yunwulian.yun_modules.input")
 local action = require("yunwulian.yun_modules.action")
 local player = require("yunwulian.yun_modules.player")
 
--- Derive tables registry
+-- 派生表注册
 derive.deriveTable = {}
 
--- Internal derive state
-local need_clear = -1
-local wrappered_id
-local derive_atk_data = {}
-local hit_counter_info = {}
-local need_hit_info = {}
-local hit_success = -1
-local counter_success = false
-local need_speed_change = {}
-local jmp_frame_cache = 0
-local jmp_frame_id = 0
-local ignore_keys = {}
-local this_derive_cmd = 0
-local this_is_by_action_id = true
-local input_cache = 0
-local pressed_time = 0.0
+-- 内部派生状态
+local need_clear = -1                    -- 需要清理的标志
+local wrappered_id                       -- 包装ID
+local derive_atk_data = {}               -- 派生攻击数据
+local hit_counter_info = {}              -- 命中计数器信息
+local need_hit_info = {}                 -- 需要命中的信息
+local hit_success = -1                   -- 命中成功标志
+local counter_success = false            -- 反击成功标志
+local need_speed_change = {}             -- 需要速度改变的数据
+local jmp_frame_cache = 0                -- 跳帧缓存
+local jmp_frame_id = 0                   -- 跳帧ID
+local ignore_keys = {}                   -- 忽略的按键
+local this_derive_cmd = 0                -- 当前派生命令
+local this_is_by_action_id = true        -- 是否通过动作ID
+local input_cache = 0                    -- 输入缓存
+local pressed_time = 0.0                 -- 按键按下时间
 
--- Hook functions
+-- 钩子函数
 derive.hook_evaluate_post = {}
 
--- Register derive table
+-- 注册派生表
+---@param derive_table table 派生表
 function derive.push_derive_table(derive_table)
     if type(derive_table) == "table" then
         table.insert(derive.deriveTable, derive_table)
     end
 end
 
--- Push evaluate post function
+-- 添加评估后函数
+---@param func function 函数
 function derive.push_evaluate_post_functions(func)
     if type(func) == "function" then
         table.insert(derive.hook_evaluate_post, func)
     end
 end
 
--- Jump to specific frame after derive
+-- 派生后跳转到特定帧
 local function jmpFrame()
     if jmp_frame_cache ~= 0 and jmp_frame_id ~= 0 then
         if jmp_frame_id == core._pre_node_id or jmp_frame_id == core._pre_action_id then
@@ -56,7 +58,7 @@ local function jmpFrame()
     end
 end
 
--- Clear derive data when leaving action
+-- 离开动作时清理派生数据
 local function wrappered_id_clear_data()
     if core._pre_action_id ~= wrappered_id and core._pre_node_id ~= wrappered_id and need_clear == core._pre_node_id then
         need_clear = -1
@@ -69,7 +71,10 @@ local function wrappered_id_clear_data()
     end
 end
 
--- Check if key is held for specific duration
+-- 检查按键是否按住特定时长
+---@param key number 按键
+---@param time number 时间
+---@return boolean 是否按住
 local function holding_key(key, time)
     if input.check_input_by_isOn(key) then
         pressed_time = pressed_time + player.get_delta_time()
@@ -82,14 +87,14 @@ local function holding_key(key, time)
     return false
 end
 
--- Main derive wrapper function
+-- 主派生包装函数
 local function derive_wrapper(derive_table)
     local derive_wrapper = {}
     if not core.master_player then return end
 
     local now_action_table
 
-    -- Iterate through weapon tables
+    -- 遍历武器表
     for _, sub_derive_table in ipairs(derive_table) do
         if sub_derive_table[core._wep_type] ~= nil then
             now_action_table = sub_derive_table[core._wep_type][core._action_id]
@@ -105,26 +110,26 @@ local function derive_wrapper(derive_table)
             goto continue2
         end
 
-        -- Iterate through derive conditions
+        -- 遍历派生条件
         for index, subtable in ipairs(now_action_table) do
             if subtable['specialCondition'] == false then goto continue end
 
-            local _targetNode = subtable['targetNode']
-            local _preFrame = subtable['preFrame'] or 10.0
-            local _startFrame = subtable['startFrame'] or core._derive_start_frame
-            local _targetCmd = subtable['targetCmd']
-            local _isHolding = subtable['isHolding']
-            local _tarLstickDir = subtable['tarLstickDir']
-            local _isByPlayerDir = subtable['isByPlayerDir']
-            local _turnRange = subtable['turnRange']
-            local _jmpFrame = subtable['jmpFrame']
-            local _preActionId = subtable['preActionId']
-            local _preNodeId = subtable['preNodeId']
-            local _useWire = subtable['useWire']
-            local _actionSpeed = subtable['actionSpeed']
-            local _holdingTime = subtable['holdingTime']
+            local _targetNode = subtable['targetNode']          -- 目标节点
+            local _preFrame = subtable['preFrame'] or 10.0      -- 前置帧
+            local _startFrame = subtable['startFrame'] or core._derive_start_frame -- 开始帧
+            local _targetCmd = subtable['targetCmd']            -- 目标命令
+            local _isHolding = subtable['isHolding']            -- 是否按住
+            local _tarLstickDir = subtable['tarLstickDir']      -- 目标左摇杆方向
+            local _isByPlayerDir = subtable['isByPlayerDir']    -- 是否基于玩家方向
+            local _turnRange = subtable['turnRange']            -- 转向范围
+            local _jmpFrame = subtable['jmpFrame']              -- 跳帧
+            local _preActionId = subtable['preActionId']        -- 前置动作ID
+            local _preNodeId = subtable['preNodeId']            -- 前置节点ID
+            local _useWire = subtable['useWire']                -- 使用翔虫
+            local _actionSpeed = subtable['actionSpeed']        -- 动作速度
+            local _holdingTime = subtable['holdingTime']        -- 按住时间
 
-            -- Check pre-conditions
+            -- 检查前置条件
             if _preActionId ~= nil and core._pre_action_id ~= _preActionId then
                 goto continue
             end
@@ -146,9 +151,9 @@ local function derive_wrapper(derive_table)
                 goto continue
             end
 
-            -- Check if within input window
+            -- 检查是否在输入窗口内
             if _startFrame - _preFrame < core._action_frame then
-                -- Check stick direction
+                -- 检查摇杆方向
                 if _tarLstickDir ~= nil then
                     if _useWire ~= nil then
                         if _useWire[1] > core.master_player:getUsableHunterWireNum() then
@@ -166,7 +171,7 @@ local function derive_wrapper(derive_table)
                     end
                 end
 
-                -- Check input
+                -- 检查输入
                 if input_cache == 0 then
                     if _targetCmd == nil and subtable['hit'] == nil and subtable['counterAtk'] == nil then
                         input_cache = _targetNode
@@ -189,7 +194,7 @@ local function derive_wrapper(derive_table)
                 end
             end
 
-            -- Do derive function
+            -- 执行派生函数
             function derive_wrapper.doDerive(target_node)
                 if not target_node then
                     action.set_current_node(input_cache)
@@ -223,7 +228,7 @@ local function derive_wrapper(derive_table)
                 input_cache = 0
             end
 
-            -- Execute derive at start frame
+            -- 在开始帧执行派生
             if _startFrame < core._action_frame then
                 if input_cache ~= 0 then
                     if _useWire ~= nil then
@@ -244,7 +249,7 @@ local function derive_wrapper(derive_table)
                 end
             end
 
-            -- Counter attack derive
+            -- 反击派生
             if counter_success and subtable['counterAtk'] ~= nil then
                 derive_wrapper.doDerive(_targetNode)
                 counter_success = false
@@ -257,7 +262,7 @@ local function derive_wrapper(derive_table)
     end
 end
 
--- Speed change handler
+-- 速度改变处理
 local function speed_change()
     for id, speed_table in pairs(need_speed_change) do
         if core._current_node == id then
@@ -278,7 +283,18 @@ local function speed_change()
     end
 end
 
--- Deprecated analog derive function (kept for compatibility)
+-- 已弃用的模拟派生函数（保持兼容性）
+---@param tar_action_id number 目标动作ID
+---@param tar_action_bank_id number 目标动作库ID
+---@param tar_cmd number 目标命令
+---@param is_by_isCmd boolean 是否使用isCmd检查
+---@param tar_lstick_dir number 目标左摇杆方向
+---@param is_by_player_dir boolean 是否基于玩家方向
+---@param pre_frame number 前置帧
+---@param start_frame number 开始帧
+---@param turn_range number 转向范围
+---@param tar_node_hash number 目标节点哈希
+---@param jmp_frame number 跳帧
 function derive.analog_derive(tar_action_id, tar_action_bank_id, tar_cmd, is_by_isCmd, tar_lstick_dir,
                               is_by_player_dir, pre_frame, start_frame, turn_range, tar_node_hash, jmp_frame)
     local derive = {}
@@ -349,68 +365,91 @@ function derive.analog_derive(tar_action_id, tar_action_bank_id, tar_cmd, is_by_
     end
 end
 
--- Update function (called every frame)
+-- 更新函数（每帧调用）
 function derive.update()
     derive_wrapper(derive.deriveTable)
     speed_change()
 end
 
--- Late update (for cleanup)
+-- 延迟更新（用于清理）
 function derive.late_update()
     wrappered_id_clear_data()
 end
 
--- Action change callback
+-- 动作改变回调
 function derive.on_action_change()
     jmpFrame()
     hit_counter_info = {}
 end
 
--- Get internal state (for hooks and debugging)
+-- 获取派生攻击数据（用于钩子和调试）
+---@return table 派生攻击数据
 function derive.get_derive_atk_data()
     return derive_atk_data
 end
 
+-- 获取命中计数器信息
+---@return table 命中计数器信息
 function derive.get_hit_counter_info()
     return hit_counter_info
 end
 
+-- 获取需要命中的信息
+---@return table 需要命中的信息
 function derive.get_need_hit_info()
     return need_hit_info
 end
 
+-- 设置命中成功
+---@param value any 值
 function derive.set_hit_success(value)
     hit_success = value
 end
 
+-- 设置反击成功
+---@param value boolean 值
 function derive.set_counter_success(value)
     counter_success = value
 end
 
+-- 获取命中成功
+---@return any 命中成功值
 function derive.get_hit_success()
     return hit_success
 end
 
+-- 获取反击成功
+---@return boolean 是否反击成功
 function derive.get_counter_success()
     return counter_success
 end
 
+-- 设置派生开始帧
+---@param value number 值
 function derive.set_derive_start_frame(value)
     core._derive_start_frame = value
 end
 
+-- 获取当前派生命令
+---@return number 派生命令
 function derive.get_this_derive_cmd()
     return this_derive_cmd
 end
 
+-- 设置当前派生命令
+---@param value number 值
 function derive.set_this_derive_cmd(value)
     this_derive_cmd = value
 end
 
+-- 获取忽略的按键
+---@return table 忽略的按键表
 function derive.get_ignore_keys()
     return ignore_keys
 end
 
+-- 获取是否通过动作ID
+---@return boolean 是否通过动作ID
 function derive.get_this_is_by_action_id()
     return this_is_by_action_id
 end

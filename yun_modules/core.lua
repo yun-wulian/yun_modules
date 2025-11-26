@@ -1,88 +1,88 @@
 -- yun_modules/core.lua
--- Core variables and game data management
+-- 核心变量和游戏数据管理
 
 local core = {}
 
--- Weapon type enum
+-- 武器类型枚举
 core.weapon_type = {
-    GreatSword = 0,
-    SlashAxe = 1,
-    LongSword = 2,
-    LightBowGun = 3,
-    HeavyBowGun = 4,
-    Hammer = 5,
-    GunLance = 6,
-    Lance = 7,
-    ShortSword = 8,
-    DualBlade = 9,
-    Horn = 10,
-    ChargeAxe = 11,
-    InsectGlaive = 12,
-    Bow = 13
+    GreatSword = 0,      -- 大剑
+    SlashAxe = 1,        -- 斩击斧
+    LongSword = 2,       -- 太刀
+    LightBowGun = 3,     -- 轻弩
+    HeavyBowGun = 4,     -- 重弩
+    Hammer = 5,          -- 锤
+    GunLance = 6,        -- 铳枪
+    Lance = 7,           -- 长枪
+    ShortSword = 8,      -- 短剑
+    DualBlade = 9,       -- 双剑
+    Horn = 10,           -- 狩猎笛
+    ChargeAxe = 11,      -- 充能斧
+    InsectGlaive = 12,   -- 操虫棍
+    Bow = 13             -- 弓
 }
 
--- Direction enum
+-- 方向枚举
 core.direction = {
-    Up = 0,
-    Down = 1,
-    Left = 2,
-    Right = 3,
-    RightUp = 4,
-    RightDown = 5,
-    LeftUp = 6,
-    LeftDown = 7
+    Up = 0,              -- 上
+    Down = 1,            -- 下
+    Left = 2,            -- 左
+    Right = 3,           -- 右
+    RightUp = 4,         -- 右上
+    RightDown = 5,       -- 右下
+    LeftUp = 6,          -- 左上
+    LeftDown = 7         -- 左下
 }
 
--- Core game object singletons
-core.GuiManager = nil
-core.TimeScaleManager = nil
-core.CameraManager = nil
-core.Pad = nil
-core.PlayerManager = nil
+-- 核心游戏对象单例
+core.GuiManager = nil           -- GUI管理器
+core.TimeScaleManager = nil     -- 时间缩放管理器
+core.CameraManager = nil        -- 相机管理器
+core.Pad = nil                  -- 手柄输入
+core.PlayerManager = nil        -- 玩家管理器
 
--- Player state variables
-core.master_player = nil
-core.master_player_index = nil
-core.player_data = nil
-core.mPlObj = nil
-core.mPlBHVT = nil
-core.PlayerMotionCtrl = nil
+-- 玩家状态变量
+core.master_player = nil        -- 主玩家对象
+core.master_player_index = nil  -- 主玩家索引
+core.player_data = nil          -- 玩家数据
+core.mPlObj = nil               -- 玩家游戏对象
+core.mPlBHVT = nil              -- 玩家行为树
+core.PlayerMotionCtrl = nil     -- 玩家动作控制
 
--- Action state variables
-core._action_bank_id = nil
-core._action_id = nil
-core._pre_action_id = nil
-core._pre_node_id = nil
-core._action_frame = nil
-core._current_node = nil
-core._wep_type = nil
-core._derive_start_frame = 0
+-- 动作状态变量
+core._action_bank_id = nil      -- 动作库ID
+core._action_id = nil           -- 当前动作ID
+core._pre_action_id = nil       -- 前一个动作ID
+core._pre_node_id = nil         -- 前一个节点ID
+core._action_frame = nil        -- 当前动作帧
+core._current_node = nil        -- 当前行为树节点
+core._wep_type = nil            -- 武器类型
+core._derive_start_frame = 0    -- 派生开始帧
 
--- Player stats
-core._muteki_time = nil
-core._hyper_armor_time = nil
-core._atk = nil
-core._affinity = nil
-core._replace_atk_data = {}
+-- 玩家属性
+core._muteki_time = nil         -- 无敌时间
+core._hyper_armor_time = nil    -- 霸体时间
+core._atk = nil                 -- 攻击力
+core._affinity = nil            -- 会心率
+core._replace_atk_data = {}     -- 替换攻击数据
 
--- Motion value tracking
-core._motion_value = nil
-core._slash_axe_motion_value = 0
-core._motion_value_id = nil
-core._slash_axe_motion_value_id = nil
+-- 动作值追踪
+core._motion_value = nil                   -- 动作值
+core._slash_axe_motion_value = 0           -- 斩击斧动作值
+core._motion_value_id = nil                -- 动作值ID
+core._slash_axe_motion_value_id = nil      -- 斩击斧动作值ID
 
--- Attack/affinity override
-core.player_atk = nil
-core.player_affinity = nil
-core.atk_flag = false
-core.affinity_flag = false
+-- 攻击/会心率覆盖
+core.player_atk = nil           -- 玩家攻击力
+core.player_affinity = nil      -- 玩家会心率
+core.atk_flag = false           -- 攻击力修改标志
+core.affinity_flag = false      -- 会心率修改标志
 
--- Game state flags
-core.is_in_quest = false
-core.is_loading_visiable = false
-core._should_draw_ui = false
+-- 游戏状态标志
+core.is_in_quest = false        -- 是否在任务中
+core.is_loading_visiable = false -- 是否显示加载界面
+core._should_draw_ui = false    -- 是否绘制UI
 
--- Initialize singletons
+-- 初始化单例
 function core.init_singletons()
     core.GuiManager = sdk.get_managed_singleton('snow.gui.GuiManager')
     core.TimeScaleManager = sdk.get_managed_singleton('snow.TimeScaleManager')
@@ -91,7 +91,7 @@ function core.init_singletons()
     core.PlayerManager = sdk.get_managed_singleton('snow.player.PlayerManager')
 end
 
--- Update game data (called every frame)
+-- 更新游戏数据（每帧调用）
 function core.update_game_data()
     if not core.master_player then return end
 
@@ -101,7 +101,7 @@ function core.update_game_data()
     core.player_data = core.master_player:call("get_PlayerData")
     core._wep_type = core.master_player:get_field("_playerWeaponType")
 
-    -- Update UI flag (requires state module functions)
+    -- 更新UI标志（需要状态模块函数）
     -- core._should_draw_ui = enabled() and not is_pausing() and should_hud_show()
 
     core._atk = core.player_data:get_field("_Attack")
@@ -125,7 +125,8 @@ function core.update_game_data()
     core._hyper_armor_time = core.master_player:get_field("_HyperArmorTimer")
 end
 
--- Find and set master player
+-- 查找并设置主玩家
+---@return boolean 是否成功找到主玩家
 function core.find_master_player()
     if not core.PlayerManager then
         core.PlayerManager = sdk.get_managed_singleton('snow.player.PlayerManager')

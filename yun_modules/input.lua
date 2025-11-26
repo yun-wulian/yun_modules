@@ -1,10 +1,11 @@
 -- yun_modules/input.lua
--- Input detection functions (stick and button)
+-- 输入检测函数（摇杆和按钮）
 
 local input = {}
 local core = require("yunwulian.yun_modules.core")
 
--- Check if left stick is being pushed
+-- 检查左摇杆是否被推动
+---@return boolean 是否推动摇杆
 function input.is_push_lstick()
     local is_push_lstick = false
     for i = 0, 7 do
@@ -14,7 +15,8 @@ function input.is_push_lstick()
     return false
 end
 
--- Turn character to stick direction with angle range limit
+-- 将角色转向摇杆方向，带角度范围限制
+---@param range number 转向范围
 function input.turn_to_lstick_dir(range)
     local is_push_lstick = false
     for i = 0, 7 do
@@ -53,7 +55,9 @@ function input.turn_to_lstick_dir(range)
     end
 end
 
--- Check stick direction (camera-based, 8 directions)
+-- 检查摇杆方向（基于相机，8方向）
+---@param direction number 方向
+---@return boolean 是否匹配方向
 function input.check_lstick_dir(direction)
     if not core.master_player then return false end
     if core.master_player:call('get_RefPlayerInput'):call("checkAnaLever", direction) then
@@ -63,7 +67,9 @@ function input.check_lstick_dir(direction)
     end
 end
 
--- Check stick direction (player-based, 8 directions)
+-- 检查摇杆方向（基于玩家，8方向）
+---@param direction number 方向
+---@return boolean 是否匹配方向
 function input.check_lstick_dir_for_player(direction)
     if not input.is_push_lstick() then return false end
     local player_angle = core.master_player:call("get_RefAngleCtrl"):get_field("_targetAngle")
@@ -93,7 +99,9 @@ function input.check_lstick_dir_for_player(direction)
     return false
 end
 
--- Check stick direction (player-based, 4 directions only)
+-- 检查摇杆方向（基于玩家，仅4方向）
+---@param direction number 方向
+---@return boolean 是否匹配方向
 function input.check_lstick_dir_for_player_only_quad(direction)
     if not input.is_push_lstick() then return false end
     local player_angle = core.master_player:call("get_RefAngleCtrl"):get_field("_targetAngle")
@@ -115,7 +123,9 @@ function input.check_lstick_dir_for_player_only_quad(direction)
     return false
 end
 
--- Check if key is being held (using isOn)
+-- 检查按键是否被按住（使用isOn）
+---@param cmd number|table 命令或命令表
+---@return boolean 是否按下
 function input.check_input_by_isOn(cmd)
     if not core.master_player then return false end
     local isAnyKeyPressed = false
@@ -132,7 +142,9 @@ function input.check_input_by_isOn(cmd)
     return isAnyKeyPressed
 end
 
--- Check if key is pressed (using isCmd)
+-- 检查按键是否被按下（使用isCmd）
+---@param cmd number|table 命令或命令表
+---@return boolean 是否按下
 function input.check_input_by_isCmd(cmd)
     if not core.master_player then return false end
     if cmd == nil then return true end

@@ -1,10 +1,10 @@
 -- yun_modules.lua
--- Main entry point - aggregates all submodules and exports unified API
--- This ensures backward compatibility with existing MODs
+-- 主入口文件 - 聚合所有子模块并导出统一的 API
+-- 确保与现有 MOD 的向后兼容性
 
 local yun_modules = {}
 
--- Import submodules
+-- 导入子模块
 local core = require("yunwulian.yun_modules.core")
 local utils = require("yunwulian.yun_modules.utils")
 local player = require("yunwulian.yun_modules.player")
@@ -16,15 +16,15 @@ local derive = require("yunwulian.yun_modules.derive")
 local hooks = require("yunwulian.yun_modules.hooks")
 local ui = require("yunwulian.yun_modules.ui")
 
--- Export enums
-yun_modules.weapon_type = core.weapon_type 
+-- 导出枚举类型
+yun_modules.weapon_type = core.weapon_type
 yun_modules.direction = core.direction
 
--- Export time functions
+-- 导出时间函数
 yun_modules.get_time = player.get_time
 yun_modules.get_delta_time = player.get_delta_time
 
--- Export player functions
+-- 导出玩家相关函数
 yun_modules.get_master_player = player.get_master_player
 yun_modules.get_master_player_index = player.get_master_player_index
 yun_modules.check_using_weapon_type = player.check_using_weapon_type
@@ -50,7 +50,7 @@ yun_modules.set_r_vital = player.set_r_vital
 yun_modules.get_selected_book = player.get_selected_book
 yun_modules.get_switch_skill = player.get_switch_skill
 
--- Export action functions
+-- 导出动作函数
 yun_modules.action_change_functions = action.action_change_functions
 yun_modules.on_action_change = action.on_action_change
 yun_modules.get_action_id = action.get_action_id
@@ -65,7 +65,7 @@ yun_modules.get_motion_value = action.get_motion_value
 yun_modules.get_motion_value_id = action.get_motion_value_id
 yun_modules.move_to_lstick_dir = action.move_to_lstick_dir
 
--- Export input functions
+-- 导出输入函数
 yun_modules.is_push_lstick = input.is_push_lstick
 yun_modules.turn_to_lstick_dir = input.turn_to_lstick_dir
 yun_modules.check_lstick_dir = input.check_lstick_dir
@@ -74,7 +74,7 @@ yun_modules.check_lstick_dir_for_player_only_quad = input.check_lstick_dir_for_p
 yun_modules.check_input_by_isOn = input.check_input_by_isOn
 yun_modules.check_input_by_isCmd = input.check_input_by_isCmd
 
--- Export state functions
+-- 导出状态相关函数
 yun_modules.quest_change_functions = state.quest_change_functions
 yun_modules.on_quest_change = state.on_quest_change
 yun_modules.should_hud_show = state.should_hud_show
@@ -83,25 +83,25 @@ yun_modules.is_pausing = state.is_pausing
 yun_modules.enabled = state.enabled
 yun_modules.should_draw_ui = state.should_draw_ui
 
--- Export effects functions
+-- 导出特效相关函数
 yun_modules.set_effect = effects.set_effect
 yun_modules.set_camera_vibration = effects.set_camera_vibration
 yun_modules.set_pad_vibration = effects.set_pad_vibration
 
--- Export derive functions
+-- 导出派生相关函数
 yun_modules.deriveTable = derive.deriveTable
 yun_modules.push_derive_table = derive.push_derive_table
 yun_modules.hook_evaluate_post = derive.hook_evaluate_post
 yun_modules.push_evaluate_post_functions = derive.push_evaluate_post_functions
 yun_modules.analog_derive = derive.analog_derive
 
--- Initialize singletons
+-- 初始化单例
 core.init_singletons()
 
--- Initialize hooks
+-- 初始化钩子
 hooks.init()
 
--- Main update loop (called every frame)
+-- 主循环
 re.on_pre_application_entry("UpdateScene", function()
     -- Find master player
     if not core.find_master_player() then

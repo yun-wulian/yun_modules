@@ -1,9 +1,12 @@
 -- yun_modules/utils.lua
--- Utility functions for the yun_modules system
+-- yun_modules系统的工具函数
 
 local utils = {}
 
--- Convert table to string with indentation
+-- 将表转换为带缩进的字符串
+---@param tbl table 表
+---@param indent string 缩进
+---@return string 字符串表示
 function utils.tableToString(tbl, indent)
     local indent = indent or ""
     local result = {}
@@ -19,7 +22,8 @@ function utils.tableToString(tbl, indent)
     return table.concat(result)
 end
 
--- Print table using ImGui
+-- 使用ImGui打印表
+---@param tbl table 表
 function utils.printTableWithImGui(tbl)
     local str = utils.tableToString(tbl)
     for line in string.gmatch(str, "[^\r\n]+") do
@@ -27,7 +31,8 @@ function utils.printTableWithImGui(tbl)
     end
 end
 
--- Print table using re.msg
+-- 使用re.msg打印表
+---@param tbl table 表
 function utils.printTableWithMsg(tbl)
     local str = utils.tableToString(tbl)
     for line in string.gmatch(str, "[^\r\n]+") do
@@ -35,7 +40,9 @@ function utils.printTableWithMsg(tbl)
     end
 end
 
--- Deep copy a table
+-- 深拷贝表
+---@param orig table 原始表
+---@return table 拷贝的表
 function utils.deepCopy(orig)
     local copy
     if type(orig) == "table" then
@@ -50,7 +57,10 @@ function utils.deepCopy(orig)
     return copy
 end
 
--- Check if frame is in range
+-- 检查帧是否在范围内
+---@param frame number 帧
+---@param range table 范围表
+---@return boolean 是否在范围内
 function utils.isFrameInRange(frame, range)
     return frame >= range[1] and frame < range[2]
 end

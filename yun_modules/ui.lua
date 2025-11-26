@@ -1,5 +1,5 @@
 -- yun_modules/ui.lua
--- Debug UI and visualization
+-- 调试UI和可视化
 
 local ui = {}
 local core = require("yunwulian.yun_modules.core")
@@ -9,14 +9,14 @@ local action = require("yunwulian.yun_modules.action")
 local effects = require("yunwulian.yun_modules.effects")
 local derive = require("yunwulian.yun_modules.derive")
 
--- UI state variables
-local pad_vibration_id = 0
-local pad_vibration_is_loop = false
-local camera_vibration_id = 0
-local camera_vibration_property = 0
-local called_keys = 0
+-- UI状态变量
+local pad_vibration_id = 0              -- 手柄震动ID
+local pad_vibration_is_loop = false     -- 手柄震动是否循环
+local camera_vibration_id = 0           -- 相机震动ID
+local camera_vibration_property = 0     -- 相机震动属性
+local called_keys = 0                   -- 调用的按键
 
--- Draw debug UI
+-- 绘制调试UI
 function ui.draw_debug_ui()
     if imgui.tree_node("YUN_DEBUGS") then
         if not core.master_player then
@@ -24,26 +24,25 @@ function ui.draw_debug_ui()
             return
         end
 
-        -- Speed change debug
-        local need_speed_change = {}  -- Should be exposed from derive module if needed
-        utils.printTableWithImGui(need_speed_change)
+        -- 速度改变调试
+        local need_speed_change = {}  -- 如果需要，应该从derive模块暴露
 
-        -- Base data
-        if imgui.tree_node("BASE DATA") then
-            imgui.drag_int("weapon_type", core._wep_type)
-            imgui.drag_int("action_bank_id", core._action_bank_id)
-            imgui.drag_int("action_id", core._action_id)
-            imgui.drag_float("frame", action.get_now_action_frame())
-            imgui.drag_float("muteki frame", player.get_muteki_time())
-            imgui.text("motion_value_id: " .. action.get_motion_value_id())
+        -- 基础数据
+        if imgui.tree_node("基础数据") then
+            imgui.drag_int("武器类型", core._wep_type)
+            imgui.drag_int("动作库ID", core._action_bank_id)
+            imgui.drag_int("动作ID", core._action_id)
+            imgui.drag_float("帧数", action.get_now_action_frame())
+            imgui.drag_float("无敌帧", player.get_muteki_time())
+            imgui.text("动作值ID: " .. action.get_motion_value_id())
             imgui.same_line()
-            imgui.text(", motion_value: " .. action.get_motion_value())
-            imgui.drag_int("pre action_id", action.get_pre_action_id())
-            imgui.drag_float("player speed", player.get_player_timescale())
-            imgui.text(string.format("current node: 0x%06X", action.get_current_node()))
-            imgui.text("now book: " .. core.master_player:get_field("_ReplaceAtkMysetHolder"):call("getSelectedIndex"))
+            imgui.text(", 动作值: " .. action.get_motion_value())
+            imgui.drag_int("前一个动作ID", action.get_pre_action_id())
+            imgui.drag_float("玩家速度", player.get_player_timescale())
+            imgui.text(string.format("当前节点: 0x%06X", action.get_current_node()))
+            imgui.text("当前技能书: " .. core.master_player:get_field("_ReplaceAtkMysetHolder"):call("getSelectedIndex"))
             imgui.same_line()
-            imgui.text(",switch_skills: ")
+            imgui.text(", 替换技能: ")
             imgui.same_line()
             for i = 1, 6 do
                 imgui.text(player.get_replace_attack_data()[i])
@@ -54,64 +53,64 @@ function ui.draw_debug_ui()
             imgui.tree_pop()
         end
 
-        -- Vibration data
-        if imgui.tree_node("VIBRATION DATA") then
-            imgui.text("pad_vibration_id = " .. pad_vibration_id)
+        -- 震动数据
+        if imgui.tree_node("震动数据") then
+            imgui.text("手柄震动ID = " .. pad_vibration_id)
             local changed
-            changed, pad_vibration_id = imgui.input_text("pad_vibration_id", pad_vibration_id)
-            changed, pad_vibration_is_loop = imgui.checkbox("pad_vibration_is_loop", pad_vibration_is_loop)
+            changed, pad_vibration_id = imgui.input_text("手柄震动ID", pad_vibration_id)
+            changed, pad_vibration_is_loop = imgui.checkbox("手柄震动是否循环", pad_vibration_is_loop)
 
-            if imgui.button("vibration ID ++") then
+            if imgui.button("震动ID ++") then
                 pad_vibration_id = pad_vibration_id + 1
             end
             imgui.same_line()
-            if imgui.button("call vibration") then
+            if imgui.button("调用震动") then
                 effects.set_pad_vibration(tonumber(pad_vibration_id), pad_vibration_is_loop)
             end
             imgui.same_line()
-            if imgui.button("stop vibration") then
+            if imgui.button("停止震动") then
                 core.Pad:stopAllPadVibration()
             end
             imgui.same_line()
-            if imgui.button("vibration ID --") then
+            if imgui.button("震动ID --") then
                 pad_vibration_id = pad_vibration_id - 1
             end
             imgui.tree_pop()
         end
 
-        -- Camera vibration data
-        if imgui.tree_node("CAMERA VIBRATION DATA") then
-            imgui.text("camera_vibration_id = " .. camera_vibration_id)
+        -- 相机震动数据
+        if imgui.tree_node("相机震动数据") then
+            imgui.text("相机震动ID = " .. camera_vibration_id)
             local changed
-            changed, camera_vibration_id = imgui.input_text("camera_vibration_id", camera_vibration_id)
-            imgui.text("camera_vibration_property = " .. camera_vibration_property)
-            changed, camera_vibration_property = imgui.input_text("camera_vibration_property", camera_vibration_property)
+            changed, camera_vibration_id = imgui.input_text("相机震动ID", camera_vibration_id)
+            imgui.text("相机震动属性 = " .. camera_vibration_property)
+            changed, camera_vibration_property = imgui.input_text("相机震动属性", camera_vibration_property)
 
-            if imgui.button("vibration ID ++") then
+            if imgui.button("震动ID ++") then
                 camera_vibration_id = camera_vibration_id + 1
             end
             imgui.same_line()
-            if imgui.button("call vibration") then
+            if imgui.button("调用震动") then
                 effects.set_camera_vibration(tonumber(camera_vibration_id), tonumber(camera_vibration_property))
             end
             imgui.same_line()
-            if imgui.button("vibration ID --") then
+            if imgui.button("震动ID --") then
                 camera_vibration_id = camera_vibration_id - 1
             end
             imgui.tree_pop()
         end
 
-        -- Derive data
-        if imgui.tree_node("DERIVE DATA") then
-            imgui.text("this_derive_cmd = " .. derive.get_this_derive_cmd())
-            imgui.text("hit_success = " .. derive.get_hit_success())
-            imgui.checkbox("counter_success", derive.get_counter_success())
-            imgui.text("called_keys = " .. called_keys)
+        -- 派生数据
+        if imgui.tree_node("派生数据") then
+            imgui.text("当前派生命令 = " .. derive.get_this_derive_cmd())
+            imgui.text("命中成功 = " .. derive.get_hit_success())
+            imgui.checkbox("反击成功", derive.get_counter_success())
+            imgui.text("调用的按键 = " .. called_keys)
             local changed
-            changed, called_keys = imgui.input_text("called_keys", called_keys)
+            changed, called_keys = imgui.input_text("调用的按键", called_keys)
             imgui.same_line()
-            if imgui.button("call derive") then
-                -- call_derive_in_table would need to be exposed
+            if imgui.button("调用派生") then
+                -- call_derive_in_table 需要被暴露
             end
             imgui.tree_pop()
         end
