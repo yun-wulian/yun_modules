@@ -83,6 +83,9 @@ core.is_in_quest = false        -- 是否在任务中
 core.is_loading_visiable = false -- 是否显示加载界面
 core._should_draw_ui = false    -- 是否绘制UI
 
+-- 动作改变回调
+core.action_change_callbacks = {}
+
 -- 初始化单例
 function core.init_singletons()
     core.GuiManager = sdk.get_managed_singleton('snow.gui.GuiManager')
@@ -195,6 +198,19 @@ function core.get_current_frame()
     return 0
 end
 
+-- 触发动作改变回调
+function core.trigger_action_change_callbacks()
+    for _, callback in ipairs(core.action_change_callbacks) do
+        if type(callback) == "function" then
+            local success, err = pcall(callback)
+            if not success then
+                -- 静默处理错误，避免影响游戏
+                print("[Core] Action change callback error: " .. tostring(err))
+            end
+        end
+    end
+end
+
 -- ============================================================================
 -- 钩子处理函数 - 由hooks.lua调用
 -- ============================================================================
@@ -218,6 +234,9 @@ function core.hook_pre_late_update(args)
         if core._action_id ~= this:get_field("_OldMotionID") then
             core._pre_action_id = core._action_id
             core._action_id = this:get_field("_OldMotionID")
+
+            -- 触发动作改变回调
+            core.trigger_action_change_callbacks()
         end
         core._action_bank_id = this:get_field("_OldBankID")
     end

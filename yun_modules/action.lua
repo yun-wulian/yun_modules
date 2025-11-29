@@ -5,8 +5,8 @@ local action = {}
 local core = require("yunwulian.yun_modules.core")
 local input = require("yunwulian.yun_modules.input")
 
--- 动作改变回调
-action.action_change_functions = {}
+-- 动作改变回调（直接引用 core 中的回调数组）
+action.action_change_functions = core.action_change_callbacks
 
 -- 添加动作改变回调函数
 ---@param change_functions function 回调函数

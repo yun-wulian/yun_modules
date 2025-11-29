@@ -69,25 +69,30 @@ function utils.deepCopy(orig)
         -- 防止循环引用
         local seen = {}
         local function _deepCopy(o)
+            -- 如果不是table，直接返回原值
+            if type(o) ~= "table" then
+                return o
+            end
+
             if seen[o] then
                 return seen[o]
             end
-            
+
             local c = {}
             seen[o] = c
-            
+
             for k, v in pairs(o) do
                 c[_deepCopy(k)] = _deepCopy(v)
             end
-            
+
             local mt = getmetatable(o)
             if mt then
                 setmetatable(c, _deepCopy(mt))
             end
-            
+
             return c
         end
-        
+
         copy = _deepCopy(orig)
     else
         copy = orig

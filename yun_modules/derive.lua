@@ -613,35 +613,38 @@ function DeriveRuleProcessor.process(rule, context, wrappered_id)
     -- 4. 初始化特殊派生信息（每帧都要检查，因为可能需要更新）
     InputHandler.init_special_info(rule, context, wrappered_id)
 
-    -- 5. 检查是否在输入窗口内
-    if not ConditionChecker.check_input_window(rule) then
-        return false
+    -- 5. 获取派生类型（提前获取，用于判断是否需要帧数检查）
+    local derive_type = ConditionChecker.get_derive_type(rule)
+
+    -- 6. 对于命中派生和反击派生，跳过输入窗口和开始帧检查（它们基于事件触发）
+    if derive_type ~= DeriveType.HIT and derive_type ~= DeriveType.COUNTER then
+        -- 检查是否在输入窗口内
+        if not ConditionChecker.check_input_window(rule) then
+            return false
+        end
+
+        -- 检查是否到达开始帧
+        if not ConditionChecker.check_start_frame(rule) then
+            return false
+        end
     end
 
-    -- 6. 检查翔虫数量
+    -- 7. 检查翔虫数量
     if not ConditionChecker.check_wire_gauge(rule) then
         return false
     end
 
-    -- 7. 检查摇杆方向
+    -- 8. 检查摇杆方向
     if not ConditionChecker.check_lstick_direction(rule) then
         return false
     end
-
-    -- 8. 获取派生类型
-    local derive_type = ConditionChecker.get_derive_type(rule)
 
     -- 9. 处理输入检测和缓存（普通派生和自动派生）
     if derive_type == DeriveType.NORMAL or derive_type == DeriveType.AUTO then
         InputHandler.process_input_cache(rule, context)
     end
 
-    -- 10. 检查是否到达开始帧
-    if not ConditionChecker.check_start_frame(rule) then
-        return false
-    end
-
-    -- 11. 尝试执行派生
+    -- 10. 尝试执行派生
     return DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_type, targetNode)
 end
 

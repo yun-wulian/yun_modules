@@ -111,6 +111,9 @@ core.init_singletons()
 -- 初始化钩子
 hooks.enable()
 
+-- 注册动作改变回调
+action.on_action_change(derive.on_action_change)
+
 -- 主循环
 re.on_pre_application_entry("UpdateScene", function()
     -- Find master player
