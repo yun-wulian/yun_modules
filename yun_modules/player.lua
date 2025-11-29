@@ -36,34 +36,35 @@ function player.set_player_timescale(value)
     core.master_player:call("get_GameObject"):call("set_TimeScale", value + .0)
 end
 
+-- 检查master_player是否可用
+---@return boolean 是否可用
+local function is_master_player_valid()
+    return core.master_player ~= nil and core.master_player:call("get_GameObject") ~= nil
+end
+
 -- 获取主玩家对象
----@return userdata 主玩家对象
+---@return userdata? 主玩家对象
 function player.get_master_player()
-    if core.master_player ~= nil then
-        return core.master_player
-    end
+    return core.master_player
 end
 
 -- 获取主玩家索引
----@return number 主玩家索引
+---@return number? 主玩家索引
 function player.get_master_player_index()
-    if core.master_player_index ~= nil then
-        return core.master_player_index
-    end
+    return core.master_player_index
 end
 
 -- 检查武器类型
 ---@param tar_type number 目标武器类型
 ---@return boolean 是否使用该武器类型
 function player.check_using_weapon_type(tar_type)
-    if core._wep_type == tar_type then return true end
-    return false
+    return core._wep_type == tar_type
 end
 
 -- 获取武器类型
----@return number 武器类型
+---@return number? 武器类型
 function player.get_weapon_type()
-    if not core.master_player then return end
+    if not is_master_player_valid() then return nil end
     return core._wep_type
 end
 
@@ -71,14 +72,27 @@ end
 ---@param skill number 技能ID
 ---@return number 技能等级
 function player.check_equip_skill_lv(skill)
-    if not core.master_player then return end
+    if not is_master_player_valid() then return 0 end
     local skill_list = core.master_player:call("get_PlayerSkillList")
+    if not skill_list then return 0 end
+    
     for i = 7, 1, -1 do
         if skill_list:call("hasSkill", skill, i) then
             return i
         end
     end
     return 0
+end
+
+-- 检查玩家是否拥有特定白龙技能
+---@param skill number 技能ID
+---@return boolean 是否拥有该技能
+function player.check_has_hyakuryu_skill(skill)
+    if not is_master_player_valid() then return false end
+    local skill_list = core.master_player:call("get_PlayerSkillList")
+    if not skill_list then return false end
+    
+    return skill_list:call("hasHyakuryuSkill(snow.data.DataDef.PlHyakuryuSkillId)", skill) == true
 end
 
 -- 攻击和会心率控制
@@ -185,21 +199,39 @@ end
 ---@param index number 索引
 ---@return number 技能类型
 function player.get_switch_skill(book, index)
-    if not core.master_player then return 0 end
+    if not is_master_player_valid() then return 0 end
+    
     local replace_holder = core.master_player:get_field("_ReplaceAtkMysetHolder")
+    if not replace_holder then return 0 end
+    
     local replace_data = replace_holder:get_field("_ReplaceAtkMysetData")
+    if not replace_data or not replace_data[book] then return 0 end
+    
     local atk_types = replace_data[book]:get_field("_ReplaceAtkTypes")
+    if not atk_types then return 0 end
+    
+    -- 检查是否有有效的攻击类型
+    local has_valid_atk_type = false
     for i = 0, 5 do
-        if sdk.to_int64(atk_types[i]) == 0 then return 0 end
+        if atk_types[i] and sdk.to_int64(atk_types[i]) ~= 0 then
+            has_valid_atk_type = true
+            break
+        end
     end
-    if index == 4 and atk_types then
-        if atk_types[4]:get_field("value__") == 1 then return 3 end
-        return atk_types[2]:get_field("value__") + 1
-    elseif index == 5 and atk_types then
+    if not has_valid_atk_type then return 0 end
+    
+    -- 根据索引返回相应的技能类型
+    if index == 4 and atk_types[4] then
+        if atk_types[4]:get_field("value__") == 1 then 
+            return 3 
+        elseif atk_types[2] then
+            return atk_types[2]:get_field("value__") + 1
+        end
+    elseif index == 5 and atk_types[5] then
         return atk_types[5]:get_field("value__") + 1
-    else
-        return 0
     end
+    
+    return 0
 end
 
 return player

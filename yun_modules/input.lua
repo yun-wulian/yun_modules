@@ -7,9 +7,12 @@ local core = require("yunwulian.yun_modules.core")
 -- 检查左摇杆是否被推动
 ---@return boolean 是否推动摇杆
 function input.is_push_lstick()
-    local is_push_lstick = false
+    if not core.master_player then return false end
+    local ref_player_input = core.master_player:call('get_RefPlayerInput')
+    if not ref_player_input then return false end
+    
     for i = 0, 7 do
-        is_push_lstick = core.master_player:call('get_RefPlayerInput'):call("checkAnaLever", i)
+        local is_push_lstick = ref_player_input:call("checkAnaLever", i)
         if is_push_lstick then return true end
     end
     return false
@@ -18,18 +21,25 @@ end
 -- 将角色转向摇杆方向，带角度范围限制
 ---@param range number 转向范围
 function input.turn_to_lstick_dir(range)
+    if not core.master_player then return end
+    local ref_player_input = core.master_player:call('get_RefPlayerInput')
+    local ref_angle_ctrl = core.master_player:call("get_RefAngleCtrl")
+    if not ref_player_input or not ref_angle_ctrl then return end
+    
+    -- 检查摇杆是否被推动
     local is_push_lstick = false
     for i = 0, 7 do
-        is_push_lstick = core.master_player:call('get_RefPlayerInput'):call("checkAnaLever", i)
+        is_push_lstick = ref_player_input:call("checkAnaLever", i)
         if is_push_lstick then break end
     end
     if not is_push_lstick then return end
-    local input_angle = core.master_player:call('get_RefPlayerInput'):call("getHormdirLstick")
-    local player_angle = core.master_player:call("get_RefAngleCtrl"):get_field("_targetAngle")
+    
+    local input_angle = ref_player_input:call("getHormdirLstick")
+    local player_angle = ref_angle_ctrl:get_field("_targetAngle")
     range = math.rad(range)
 
     if range >= 180.0 then
-        core.master_player:call("get_RefAngleCtrl"):set_field("_targetAngle", input_angle)
+        ref_angle_ctrl:set_field("_targetAngle", input_angle)
         return
     end
 
@@ -37,7 +47,7 @@ function input.turn_to_lstick_dir(range)
     local delta_angle_cos = math.cos(input_angle - player_angle)
 
     if delta_angle_cos > math.cos(range) then
-        core.master_player:call("get_RefAngleCtrl"):set_field("_targetAngle", input_angle)
+        ref_angle_ctrl:set_field("_targetAngle", input_angle)
     else
         local left_target, right_target
         left_target = player_angle + range
@@ -48,9 +58,9 @@ function input.turn_to_lstick_dir(range)
             right_target = 2 * math.pi - right_target
         end
         if delta_angle_sin > 0 then
-            core.master_player:call("get_RefAngleCtrl"):set_field("_targetAngle", left_target)
+            ref_angle_ctrl:set_field("_targetAngle", left_target)
         else
-            core.master_player:call("get_RefAngleCtrl"):set_field("_targetAngle", right_target)
+            ref_angle_ctrl:set_field("_targetAngle", right_target)
         end
     end
 end
@@ -60,11 +70,10 @@ end
 ---@return boolean 是否匹配方向
 function input.check_lstick_dir(direction)
     if not core.master_player then return false end
-    if core.master_player:call('get_RefPlayerInput'):call("checkAnaLever", direction) then
-        return true
-    else
-        return false
-    end
+    local ref_player_input = core.master_player:call('get_RefPlayerInput')
+    if not ref_player_input then return false end
+    
+    return ref_player_input:call("checkAnaLever", direction) == true
 end
 
 -- 检查摇杆方向（基于玩家，8方向）

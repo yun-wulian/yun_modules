@@ -3,6 +3,7 @@
 
 local action = {}
 local core = require("yunwulian.yun_modules.core")
+local input = require("yunwulian.yun_modules.input")
 
 -- 动作改变回调
 action.action_change_functions = {}
@@ -45,7 +46,7 @@ end
 -- 获取当前动作帧
 ---@return number 当前动作帧
 function action.get_now_action_frame()
-    if not core.master_player then return end
+    if not core.master_player then return 0 end
     return core._action_frame
 end
 
@@ -94,11 +95,10 @@ end
 -- 获取当前动作的动作值
 ---@return number 动作值
 function action.get_motion_value()
-    if not core._motion_value or not core._slash_axe_motion_value then return 0 end
     if core._wep_type == core.weapon_type.SlashAxe then
-        return core._slash_axe_motion_value
+        return core._slash_axe_motion_value or 0
     end
-    return core._motion_value
+    return core._motion_value or 0
 end
 
 -- 获取当前动作的动作值ID
@@ -133,7 +133,6 @@ function action.move_to_lstick_dir(action_id, frame_range, no_move_frame, move_m
             end
         end
         if core._action_frame < frame_range then
-            local input = require("yunwulian.yun_modules.input")
             if input.is_push_lstick() then
                 if dir_limit ~= nil then
                     if not input.check_lstick_dir_for_player(dir_limit) then

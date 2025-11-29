@@ -11,14 +11,34 @@ function utils.tableToString(tbl, indent)
     local indent = indent or ""
     local result = {}
     if tbl == nil then return "nil" end
-    for key, value in pairs(tbl) do
-        table.insert(result, string.format("%s%s: ", indent, tostring(key)))
-        if type(value) == "table" then
-            table.insert(result, "\n" .. utils.tableToString(value, indent .. "  "))
-        else
-            table.insert(result, tostring(value) .. "\n")
+    
+    -- 防止循环引用
+    local seen = {}
+    local function _tableToString(t, ind, depth)
+        if depth > 10 then  -- 防止无限递归
+            table.insert(result, ind .. "... (depth limit reached)\n")
+            return
         end
+        
+        if seen[t] then
+            table.insert(result, ind .. "... (circular reference)\n")
+            return
+        end
+        seen[t] = true
+        
+        for key, value in pairs(t) do
+            table.insert(result, string.format("%s%s: ", ind, tostring(key)))
+            if type(value) == "table" then
+                table.insert(result, "\n")
+                _tableToString(value, ind .. "  ", depth + 1)
+            else
+                table.insert(result, tostring(value) .. "\n")
+            end
+        end
+        seen[t] = nil
     end
+    
+    _tableToString(tbl, indent, 0)
     return table.concat(result)
 end
 
@@ -46,11 +66,29 @@ end
 function utils.deepCopy(orig)
     local copy
     if type(orig) == "table" then
-        copy = {}
-        for k, v in next, orig, nil do
-            copy[utils.deepCopy(k)] = utils.deepCopy(v)
+        -- 防止循环引用
+        local seen = {}
+        local function _deepCopy(o)
+            if seen[o] then
+                return seen[o]
+            end
+            
+            local c = {}
+            seen[o] = c
+            
+            for k, v in pairs(o) do
+                c[_deepCopy(k)] = _deepCopy(v)
+            end
+            
+            local mt = getmetatable(o)
+            if mt then
+                setmetatable(c, _deepCopy(mt))
+            end
+            
+            return c
         end
-        setmetatable(copy, utils.deepCopy(getmetatable(orig)))
+        
+        copy = _deepCopy(orig)
     else
         copy = orig
     end
@@ -63,6 +101,19 @@ end
 ---@return boolean 是否在范围内
 function utils.isFrameInRange(frame, range)
     return frame >= range[1] and frame < range[2]
+end
+
+-- 获取游戏运行时间（秒）
+---@return number 游戏运行时间
+function utils.get_game_time()
+    local appType = sdk.find_type_definition("via.Application")
+    if not appType then return 0 end
+    
+    local get_UpTimeSecond = appType:get_method("get_UpTimeSecond")
+    if not get_UpTimeSecond then return 0 end
+    
+    local result = get_UpTimeSecond:call(nil)
+    return result or 0
 end
 
 return utils

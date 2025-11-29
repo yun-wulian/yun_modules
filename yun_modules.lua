@@ -30,6 +30,7 @@ yun_modules.get_master_player_index = player.get_master_player_index
 yun_modules.check_using_weapon_type = player.check_using_weapon_type
 yun_modules.get_weapon_type = player.get_weapon_type
 yun_modules.check_equip_skill_lv = player.check_equip_skill_lv
+yun_modules.check_has_hyakuryu_skill = player.check_has_hyakuryu_skill
 yun_modules.get_player_timescale = player.get_player_timescale
 yun_modules.set_player_timescale = player.set_player_timescale
 yun_modules.set_atk = player.set_atk
@@ -88,18 +89,27 @@ yun_modules.set_effect = effects.set_effect
 yun_modules.set_camera_vibration = effects.set_camera_vibration
 yun_modules.set_pad_vibration = effects.set_pad_vibration
 
+-- 导出特效系统（状态机）
+yun_modules.effectTable = effects.effectTable
+yun_modules.push_effect_table = effects.push_effect_table
+
+-- 导出相机效果直接调用接口
+yun_modules.trigger_camera_effect = effects.trigger_camera_effect
+yun_modules.test_camera_effect = effects.test_camera_effect  -- 向后兼容别名
+yun_modules.clear_all_camera_effects = effects.clear_all_camera_effects
+yun_modules.get_active_camera_effects_count = effects.get_active_camera_effects_count
+
 -- 导出派生相关函数
 yun_modules.deriveTable = derive.deriveTable
 yun_modules.push_derive_table = derive.push_derive_table
 yun_modules.hook_evaluate_post = derive.hook_evaluate_post
 yun_modules.push_evaluate_post_functions = derive.push_evaluate_post_functions
-yun_modules.analog_derive = derive.analog_derive
 
 -- 初始化单例
 core.init_singletons()
 
 -- 初始化钩子
-hooks.init()
+hooks.enable()
 
 -- 主循环
 re.on_pre_application_entry("UpdateScene", function()
@@ -122,6 +132,9 @@ re.on_pre_application_entry("UpdateScene", function()
 
     -- Update derive system
     derive.update()
+
+    -- Update effect system
+    effects.update()
 end)
 
 -- Late update loop (for cleanup)

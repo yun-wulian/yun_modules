@@ -37,6 +37,7 @@ core.direction = {
 core.GuiManager = nil           -- GUI管理器
 core.TimeScaleManager = nil     -- 时间缩放管理器
 core.CameraManager = nil        -- 相机管理器
+core.GameCamera = nil           -- 游戏相机
 core.Pad = nil                  -- 手柄输入
 core.PlayerManager = nil        -- 玩家管理器
 
@@ -87,6 +88,7 @@ function core.init_singletons()
     core.GuiManager = sdk.get_managed_singleton('snow.gui.GuiManager')
     core.TimeScaleManager = sdk.get_managed_singleton('snow.TimeScaleManager')
     core.CameraManager = sdk.get_managed_singleton("snow.CameraManager")
+    core.GameCamera = sdk.get_managed_singleton("snow.GameCamera")
     core.Pad = sdk.get_managed_singleton('snow.Pad')
     core.PlayerManager = sdk.get_managed_singleton('snow.player.PlayerManager')
 end
@@ -95,34 +97,64 @@ end
 function core.update_game_data()
     if not core.master_player then return end
 
-    core.master_player_index = core.master_player:get_field("_PlayerIndex")
-    core.mPlObj = core.master_player:call("get_GameObject")
-    core.mPlBHVT = core.mPlObj:call("getComponent(System.Type)", sdk.typeof("via.behaviortree.BehaviorTree"))
-    core.player_data = core.master_player:call("get_PlayerData")
-    core._wep_type = core.master_player:get_field("_playerWeaponType")
+    -- 使用局部变量缓存频繁访问的数据以提高性能
+    local success, player_index = pcall(function() return core.master_player:get_field("_PlayerIndex") end)
+    if success then core.master_player_index = player_index end
+
+    local game_object = core.master_player:call("get_GameObject")
+    if game_object then
+        core.mPlObj = game_object
+        local bhvt = game_object:call("getComponent(System.Type)", sdk.typeof("via.behaviortree.BehaviorTree"))
+        if bhvt then
+            core.mPlBHVT = bhvt
+        end
+    end
+
+    local player_data = core.master_player:call("get_PlayerData")
+    if player_data then
+        core.player_data = player_data
+        core._atk = player_data:get_field("_Attack")
+        core._affinity = player_data:get_field("_CriticalRate")
+    end
+
+    local wep_type = core.master_player:get_field("_playerWeaponType")
+    if wep_type then core._wep_type = wep_type end
 
     -- 更新UI标志（需要状态模块函数）
     -- core._should_draw_ui = enabled() and not is_pausing() and should_hud_show()
 
-    core._atk = core.player_data:get_field("_Attack")
-
-    if core._current_node ~= core.mPlBHVT:call("getCurrentNodeID", 0) then
-        core._pre_node_id = core._current_node
-        core._current_node = core.mPlBHVT:call("getCurrentNodeID", 0)
+    -- 安全更新行为树节点信息
+    if core.mPlBHVT then
+        local current_node_id = core.mPlBHVT:call("getCurrentNodeID", 0)
+        if current_node_id then
+            if core._current_node ~= current_node_id then
+                core._pre_node_id = core._current_node
+                core._current_node = current_node_id
+            end
+        end
     end
 
-    core._action_frame = core.master_player:call("getMotionLayer", 0):call("get_Frame")
-    core._affinity = core.player_data:get_field("_CriticalRate")
-    core._muteki_time = core.master_player:get_field("_MutekiTime")
-    core._replace_atk_data = {
-        core.master_player:get_field("_replaceAttackTypeA"),
-        core.master_player:get_field("_replaceAttackTypeB"),
-        core.master_player:get_field("_replaceAttackTypeC"),
-        core.master_player:get_field("_replaceAttackTypeD"),
-        core.master_player:get_field("_replaceAttackTypeE"),
-        core.master_player:get_field("_replaceAttackTypeF")
-    }
-    core._hyper_armor_time = core.master_player:get_field("_HyperArmorTimer")
+    -- 注意：动作帧数现在在hook中实时更新，不再在这里更新以避免滞后性
+    -- 详见 core.hook_pre_late_update() 中的实时帧数更新
+
+    -- 安全获取玩家状态
+    local muteki_time = core.master_player:get_field("_MutekiTime")
+    if muteki_time then core._muteki_time = muteki_time end
+
+    local hyper_armor_time = core.master_player:get_field("_HyperArmorTimer")
+    if hyper_armor_time then core._hyper_armor_time = hyper_armor_time end
+
+    -- 安全获取替换攻击数据（优化：复用表，避免每帧创建新表）
+    if not core._replace_atk_data then
+        core._replace_atk_data = {}
+    end
+
+    local replace_fields = {"_replaceAttackTypeA", "_replaceAttackTypeB", "_replaceAttackTypeC",
+                           "_replaceAttackTypeD", "_replaceAttackTypeE", "_replaceAttackTypeF"}
+    for i, field in ipairs(replace_fields) do
+        local value = core.master_player:get_field(field)
+        core._replace_atk_data[i] = value or 0
+    end
 end
 
 -- 查找并设置主玩家
@@ -139,6 +171,119 @@ function core.find_master_player()
         return false
     end
     return true
+end
+
+-- ============================================================================
+-- 直接帧数获取函数
+-- ============================================================================
+
+-- 直接获取当前动作帧（无滞后性，类似火焰片手剑的方式）
+---@return number 当前动作帧
+function core.get_current_frame()
+    if not core.master_player then
+        return 0
+    end
+
+    local motion_layer = core.master_player:call("getMotionLayer", 0)
+    if motion_layer then
+        local frame = motion_layer:call("get_Frame")
+        if frame then
+            return math.floor(frame)
+        end
+    end
+
+    return 0
+end
+
+-- ============================================================================
+-- 钩子处理函数 - 由hooks.lua调用
+-- ============================================================================
+
+-- 钩子：动作ID改变检测
+---@param args table 钩子参数
+function core.hook_pre_late_update(args)
+    local this = sdk.to_managed_object(args[2])
+    local PlayerBase = this:get_field("_RefPlayerBase")
+
+    if PlayerBase:isMasterPlayer() then
+        -- 实时更新动作帧数（无滞后性）
+        local motion_layer = PlayerBase:call("getMotionLayer", 0)
+        if motion_layer then
+            local frame = motion_layer:call("get_Frame")
+            if frame then
+                core._action_frame = math.floor(frame)
+            end
+        end
+
+        if core._action_id ~= this:get_field("_OldMotionID") then
+            core._pre_action_id = core._action_id
+            core._action_id = this:get_field("_OldMotionID")
+        end
+        core._action_bank_id = this:get_field("_OldBankID")
+    end
+end
+
+-- 钩子：会心率控制
+---@param args table 钩子参数
+function core.hook_pre_calc_total_affinity(args)
+    local this = sdk.to_managed_object(args[2])
+    if not this:isMasterPlayer() then
+        return sdk.PreHookResult.CALL_ORIGINAL
+    end
+end
+
+function core.hook_post_calc_total_affinity(retval)
+    if not core.master_player then return retval end
+    if core.affinity_flag then
+        core.player_data:set_field("_CriticalRate", core.player_affinity)
+    end
+    return retval
+end
+
+-- 钩子：动作值追踪（通用）
+---@param args table 钩子参数
+function core.hook_pre_get_adjust_stun_attack(args)
+    local this = sdk.to_managed_object(args[2])
+    local hitData = sdk.to_managed_object(args[3])
+    if this:isMasterPlayer() then
+        core._motion_value = hitData:get_field("_BaseDamage")
+        core._motion_value_id = hitData:get_field("<RequestSetID>k__BackingField")
+    end
+end
+
+-- 钩子：动作值追踪（斩击斧特定）
+---@param args table 钩子参数
+function core.hook_pre_slash_axe_get_adjust_stun_attack(args)
+    local this = sdk.to_managed_object(args[2])
+    local hitData = sdk.to_managed_object(args[3])
+    if this:isMasterPlayer() then
+        core._slash_axe_motion_value = hitData:get_field("_BaseDamage")
+        core._slash_axe_motion_value_id = hitData:get_field("<RequestSetID>k__BackingField")
+    end
+end
+
+-- 钩子：命令评估（按键按下检测）- 前置处理
+---@param args table 钩子参数
+function core.hook_pre_fsm_command_evaluate(args)
+    local storage = thread.get_hook_storage()
+    storage["commandbase"] = sdk.to_managed_object(args[2])
+    storage["commandarg"] = sdk.to_managed_object(args[3])
+    storage["cmdplayer"] = sdk.to_managed_object(args[2]):getPlayerBase(sdk.to_managed_object(args[3]))
+end
+
+-- 钩子：反击检测 - 前置处理
+---@param args table 钩子参数
+function core.hook_pre_check_calc_damage(args)
+    local storage = thread.get_hook_storage()
+    storage["refPlayer"] = sdk.to_managed_object(args[2])
+    storage["damageData"] = sdk.to_managed_object(args[3]):get_AttackData()
+end
+
+function core.hook_post_check_calc_damage(retval)
+    if not thread.get_hook_storage()["refPlayer"]:isMasterPlayer() then
+        return retval
+    end
+    return retval
 end
 
 return core
