@@ -478,10 +478,13 @@ function CameraEffectManager:update_logic()
                 total_distance_offset = total_distance_offset + effect.distance_offset_current
             end
 
-            -- 径向模糊只在 forward 阶段应用，reverse 阶段直接设为 0
+            -- 径向模糊在reverse阶段使用固定0.5秒淡出
             if config.radial_blur then
-                effect.radial_blur_current = 0
-                -- 不累加到 total_radial_blur
+                local blur_fade_duration = 0.5
+                local blur_progress = clamp01(elapsed_time / blur_fade_duration)
+                local blur_easing_func = Easing.get("ease_in")
+                effect.radial_blur_current = blur_easing_func(blur_progress, effect.radial_blur_peak, 0)
+                total_radial_blur = total_radial_blur + effect.radial_blur_current
             end
 
             -- 检查是否完成reverse阶段
