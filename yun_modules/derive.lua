@@ -73,6 +73,10 @@ function DeriveContext.new()
     self.jmp_frame_cache = 0
     self.jmp_frame_id = 0
 
+    -- 回调相关
+    self.callback_cache = nil
+    self.callback_id = 0
+
     -- 清理相关
     self.need_clear = -1
     self.wrappered_id = nil
@@ -105,6 +109,8 @@ function DeriveContext:reset()
     self.derive_atk_data = {}
     self.jmp_frame_cache = 0
     self.jmp_frame_id = 0
+    self.callback_cache = nil
+    self.callback_id = 0
     self.need_clear = -1
     self.executed_special_derives = {} -- 清除特殊派生执行记录
 end
@@ -508,6 +514,9 @@ function DeriveExecutor.execute(target_node, rule, context, wrappered_id)
     -- 应用攻击倍率
     DeriveExecutor.apply_attack_multipliers(rule, context)
 
+    -- 应用派生成功回调
+    DeriveExecutor.apply_callback(rule, context, wrappered_id)
+
     -- 设置清理标志和清除输入缓存
     context.need_clear = target_node or -1
     context:clear_input_cache()
@@ -567,6 +576,18 @@ function DeriveExecutor.apply_attack_multipliers(rule, context)
     -- 耐力倍率
     if rule.staMult ~= nil then
         context.derive_atk_data.staMult = utils.deepCopy(rule.staMult)
+    end
+end
+
+-- 应用派生成功回调
+---@param rule table 派生规则
+---@param context table 派生上下文
+---@param wrappered_id number 包装ID
+function DeriveExecutor.apply_callback(rule, context, wrappered_id)
+    local callback = rule.onDeriveSuccess
+    if callback ~= nil and type(callback) == "function" then
+        context.callback_cache = callback
+        context.callback_id = wrappered_id
     end
 end
 
@@ -816,6 +837,24 @@ local function jmpFrame()
     end
 end
 
+local function executeCallback()
+    if derive_context.callback_cache ~= nil and derive_context.callback_id ~= 0 then
+        -- 检查ID是否匹配（派生成功，动作已改变）
+        if derive_context.callback_id == core._pre_node_id or
+           derive_context.callback_id == core._pre_action_id then
+            -- 使用pcall保护，避免用户函数报错影响系统
+            local success, err = pcall(derive_context.callback_cache)
+            if not success then
+                table.insert(error_messages, "onDeriveSuccess callback error: " .. tostring(err))
+            end
+
+            -- 清除缓存，保证只执行一次
+            derive_context.callback_cache = nil
+            derive_context.callback_id = 0
+        end
+    end
+end
+
 local function wrappered_id_clear_data()
     derive_context:check_and_clear()
 end
@@ -834,6 +873,7 @@ end
 -- 动作改变回调
 function derive.on_action_change()
     jmpFrame()
+    executeCallback()
     derive_context.hit_counter_info = {}
 end
 
