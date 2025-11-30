@@ -50,6 +50,7 @@ yun_modules.get_r_vital = player.get_r_vital
 yun_modules.set_r_vital = player.set_r_vital
 yun_modules.get_selected_book = player.get_selected_book
 yun_modules.get_switch_skill = player.get_switch_skill
+yun_modules.set_hurtbox_scale = player.set_hurtbox_scale
 
 -- 导出动作函数
 yun_modules.action_change_functions = action.action_change_functions
@@ -132,6 +133,9 @@ re.on_pre_application_entry("UpdateScene", function()
 
     -- Update should_draw_ui flag
     state.update_should_draw_ui()
+
+    -- Update player hurtbox scaling
+    player._update_hurtbox()
 
     -- Update derive system
     derive.update()

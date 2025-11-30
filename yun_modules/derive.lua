@@ -1,5 +1,146 @@
 -- yun_modules/derive.lua
 -- 派生系统，用于动作转换和连招
+--
+-- ============================================================================
+-- 派生表完整使用说明
+-- ============================================================================
+--
+-- 基础派生规则结构：
+-- {
+--     targetNode = 0x12345678,       -- 目标节点ID（必需）
+--     targetCmd = 1,                 -- 目标按键命令（普通派生必需，自动派生不需要）
+--
+--     -- 前置条件（可选）
+--     preActionId = 123,             -- 前序动作ID限制（可选）或 {123, 124, 125} 匹配任意一个
+--     preNodeId = 0x12345678,        -- 前序节点ID限制（可选）或 {0x123, 0x456} 匹配任意一个
+--     specialCondition = function() return true end,  -- 自定义条件函数（可选）
+--
+--     -- 帧数设置（可选）
+--     startFrame = 10,               -- 派生开始帧（可选，默认使用游戏原始派生开始帧）
+--     preFrame = 10.0,               -- 前置输入帧数（可选，默认 10.0）
+--
+--     -- 输入设置（可选）
+--     isHolding = false,             -- 是否需要按住按键（可选，默认 false）
+--     holdingTime = 0.5,             -- 按住时长（秒）（可选，配合 isHolding 使用）
+--     tarLstickDir = 1,              -- 摇杆方向限制（可选，四个方向）
+--     isByPlayerDir = true,          -- 摇杆方向是否基于玩家朝向（可选，默认 true）
+--     needIgnoreOriginalKey = 1,     -- 需要屏蔽的原始按键命令（可选）
+--
+--     -- 翔虫设置（可选）
+--     useWire = {1, 5.0},            -- 使用翔虫 {消耗数量, 冷却时间（秒）}（可选）
+--
+--     -- 转向设置（可选）
+--     turnRange = 180,               -- 允许的转向角度范围（可选）
+--
+--     -- 跳帧设置（可选）
+--     jmpFrame = 20,                 -- 派生后跳转到指定帧数（可选）
+--
+--     -- 速度设置（可选）
+--     actionSpeed = {                -- 动作速度修改（可选）
+--         frame = {{0, 10}, {20, 30}},  -- 帧数范围列表
+--         speed = {2.0, 0.5}            -- 对应的速度倍率
+--     },
+--
+--     -- 攻击倍率（可选，{倍率, 持续命中次数}）
+--     atkMult = {2.0, 3},            -- 攻击倍率（可选）
+--     eleMult = {1.5, 3},            -- 属性倍率（可选）
+--     stunMult = {2.0, 3},           -- 眩晕倍率（可选）
+--     staMult = {1.5, 3},            -- 耐力倍率（可选）
+--
+--     -- 特殊派生（可选）
+--     hit = true,                    -- 命中派生（设为 true 表示需要命中才能派生）
+--     hitLag = 5,                    -- 命中延迟帧数（可选，配合 hit 使用）
+--     counterAtk = {true, 1, {10, 30}},  -- 反击派生 {是否启用, 次数, {开始帧, 结束帧}}（可选）
+--
+--     -- 回调函数（可选）
+--     onDeriveSuccess = function()   -- 派生成功后的回调函数（可选）
+--         -- 自定义代码
+--     end
+-- }
+--
+-- ============================================================================
+-- 派生类型说明
+-- ============================================================================
+--
+-- 1. 普通派生（NORMAL）
+--    - 需要 targetNode 和 targetCmd
+--    - 玩家按下对应按键后触发
+--
+-- 2. 自动派生（AUTO）
+--    - 只需要 targetNode，不需要 targetCmd
+--    - 满足条件后自动触发
+--
+-- 3. 命中派生（HIT）
+--    - 需要 targetNode 和 hit = true
+--    - 攻击命中敌人后触发
+--
+-- 4. 反击派生（COUNTER）
+--    - 需要 targetNode 和 counterAtk = {true, 次数, {开始帧, 结束帧}}
+--    - 在指定帧数内受到攻击时触发
+--
+-- ============================================================================
+-- 完整示例
+-- ============================================================================
+--
+-- local derive_table = {
+--     [weapon_type.ChargeAxe] = {
+--         [100] = {  -- 动作ID
+--             -- 示例1：普通派生（需要按键）
+--             {
+--                 targetNode = 0x12345678,
+--                 targetCmd = 1,           -- 按键命令
+--                 preActionId = {99, 100}, -- 从动作 99 或 100 转换过来
+--                 startFrame = 10,
+--                 preFrame = 15.0,
+--                 atkMult = {1.5, 1},      -- 攻击倍率 1.5 倍，持续 1 次命中
+--             },
+--             -- 示例2：自动派生（无需按键）
+--             {
+--                 targetNode = 0x87654321,
+--                 -- 不设置 targetCmd，满足条件后自动派生
+--                 specialCondition = function()
+--                     -- 自定义条件
+--                     return some_value > 10
+--                 end,
+--                 jmpFrame = 20,           -- 派生后跳转到第 20 帧
+--             },
+--             -- 示例3：命中派生
+--             {
+--                 targetNode = 0xAABBCCDD,
+--                 hit = true,              -- 命中后触发
+--                 hitLag = 5,              -- 命中后延迟 5 帧
+--                 atkMult = {2.0, 1},
+--             },
+--             -- 示例4：反击派生
+--             {
+--                 targetNode = 0x11223344,
+--                 counterAtk = {true, 1, {10, 30}},  -- 10-30 帧内受击，触发 1 次反击
+--                 needIgnoreOriginalKey = 2,  -- 屏蔽原始按键命令 2
+--             },
+--             -- 示例5：翔虫派生
+--             {
+--                 targetNode = 0x55667788,
+--                 targetCmd = 3,
+--                 useWire = {1, 5.0},      -- 消耗 1 个翔虫，冷却 5 秒
+--                 tarLstickDir = 1,        -- 需要向前推摇杆
+--                 turnRange = 90,          -- 允许 90 度转向
+--             },
+--             -- 示例6：带速度修改的派生
+--             {
+--                 targetNode = 0x99AABBCC,
+--                 targetCmd = 4,
+--                 actionSpeed = {
+--                     frame = {{0, 15}, {20, 40}},  -- 两个帧数区间
+--                     speed = {2.0, 0.5}            -- 对应速度倍率
+--                 },
+--                 onDeriveSuccess = function()
+--                     log.info("派生成功！")
+--                 end
+--             }
+--         }
+--     }
+-- }
+-- ============================================================================
 
 local derive = {}
 local core = require("yunwulian.yun_modules.core")
@@ -240,10 +381,22 @@ end
 ---@return boolean 是否满足条件
 function ConditionChecker.check_pre_action_id(rule)
     local preActionId = rule.preActionId
-    if preActionId ~= nil and core._pre_action_id ~= preActionId then
+    if preActionId == nil then
+        return true
+    end
+
+    -- 支持表格形式：匹配任意一个前序动作
+    if type(preActionId) == "table" then
+        for _, action_id in ipairs(preActionId) do
+            if action_id == core._pre_action_id then
+                return true
+            end
+        end
         return false
     end
-    return true
+
+    -- 单个值形式：精确匹配
+    return core._pre_action_id == preActionId
 end
 
 -- 检查前置节点ID
@@ -251,10 +404,22 @@ end
 ---@return boolean 是否满足条件
 function ConditionChecker.check_pre_node_id(rule)
     local preNodeId = rule.preNodeId
-    if preNodeId ~= nil and core._pre_node_id ~= preNodeId then
+    if preNodeId == nil then
+        return true
+    end
+
+    -- 支持表格形式：匹配任意一个前序节点
+    if type(preNodeId) == "table" then
+        for _, node_id in ipairs(preNodeId) do
+            if node_id == core._pre_node_id then
+                return true
+            end
+        end
         return false
     end
-    return true
+
+    -- 单个值形式：精确匹配
+    return core._pre_node_id == preNodeId
 end
 
 -- 检查所有前置条件
@@ -426,25 +591,8 @@ function InputHandler.init_special_info(rule, context, wrappered_id)
         context.need_hit_info = { core._action_id, rule.startFrame or core._derive_start_frame }
     end
 
-    -- 设置需要忽略的原始按键（只设置一次，避免重复添加）
-    if rule.needIgnoreOriginalKey ~= nil then
-        if not context.ignore_keys[wrappered_id] then
-            context.ignore_keys[wrappered_id] = {}
-        end
-
-        -- 检查是否已经添加过，避免重复
-        local already_exists = false
-        for _, key in ipairs(context.ignore_keys[wrappered_id]) do
-            if key == rule.needIgnoreOriginalKey then
-                already_exists = true
-                break
-            end
-        end
-
-        if not already_exists then
-            table.insert(context.ignore_keys[wrappered_id], rule.needIgnoreOriginalKey)
-        end
-    end
+    -- 注意：needIgnoreOriginalKey 已移至条件检查通过后处理
+    -- 确保只有在"等待按键"状态时才屏蔽原始按键
 end
 
 -- 处理输入检测和缓存
@@ -664,12 +812,33 @@ function DeriveRuleProcessor.process(rule, context, wrappered_id)
         return false
     end
 
-    -- 9. 处理输入检测和缓存（普通派生和自动派生）
+    -- 9. 设置需要忽略的原始按键（所有条件都满足，准备接收输入）
+    -- 只对普通派生（需要按键输入）进行处理
+    if derive_type == DeriveType.NORMAL and rule.needIgnoreOriginalKey ~= nil then
+        if not context.ignore_keys[wrappered_id] then
+            context.ignore_keys[wrappered_id] = {}
+        end
+
+        -- 检查是否已经添加过，避免重复
+        local already_exists = false
+        for _, key in ipairs(context.ignore_keys[wrappered_id]) do
+            if key == rule.needIgnoreOriginalKey then
+                already_exists = true
+                break
+            end
+        end
+
+        if not already_exists then
+            table.insert(context.ignore_keys[wrappered_id], rule.needIgnoreOriginalKey)
+        end
+    end
+
+    -- 10. 处理输入检测和缓存（普通派生和自动派生）
     if derive_type == DeriveType.NORMAL or derive_type == DeriveType.AUTO then
         InputHandler.process_input_cache(rule, context)
     end
 
-    -- 10. 尝试执行派生
+    -- 11. 尝试执行派生
     return DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_type, targetNode)
 end
 

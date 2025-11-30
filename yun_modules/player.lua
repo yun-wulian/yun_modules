@@ -200,16 +200,16 @@ end
 ---@return number 技能类型
 function player.get_switch_skill(book, index)
     if not is_master_player_valid() then return 0 end
-    
+
     local replace_holder = core.master_player:get_field("_ReplaceAtkMysetHolder")
     if not replace_holder then return 0 end
-    
+
     local replace_data = replace_holder:get_field("_ReplaceAtkMysetData")
     if not replace_data or not replace_data[book] then return 0 end
-    
+
     local atk_types = replace_data[book]:get_field("_ReplaceAtkTypes")
     if not atk_types then return 0 end
-    
+
     -- 检查是否有有效的攻击类型
     local has_valid_atk_type = false
     for i = 0, 5 do
@@ -219,19 +219,182 @@ function player.get_switch_skill(book, index)
         end
     end
     if not has_valid_atk_type then return 0 end
-    
+
     -- 根据索引返回相应的技能类型
     if index == 4 and atk_types[4] then
-        if atk_types[4]:get_field("value__") == 1 then 
-            return 3 
+        if atk_types[4]:get_field("value__") == 1 then
+            return 3
         elseif atk_types[2] then
             return atk_types[2]:get_field("value__") + 1
         end
     elseif index == 5 and atk_types[5] then
         return atk_types[5]:get_field("value__") + 1
     end
-    
+
     return 0
+end
+
+-- ============================================================================
+-- 受伤碰撞箱缩放功能
+-- ============================================================================
+
+-- 碰撞箱内部状态
+local _hurtbox_initialized = false
+local _hurtbox_scale_rules = {}  -- { [weapon_type] = { [action_id] = scale } }
+local _hurtbox_current_weapon_type = nil
+local _player_hurtbox = nil
+local _hurtbox_original_radius = nil
+local _hurtbox_original_extent = nil
+
+-- 获取组件的辅助函数
+local function get_component(game_object, type_name)
+    local t = sdk.typeof(type_name)
+    if t == nil then return nil end
+    return game_object:call("getComponent(System.Type)", t)
+end
+
+-- 获取玩家受伤碰撞箱
+local function get_player_hurtbox()
+    local playman = sdk.get_managed_singleton("snow.player.PlayerManager")
+    if not playman then return nil end
+
+    local master = playman:findMasterPlayer()
+    if master then
+        local game_object = master:get_GameObject()
+        local rscc = get_component(game_object, 'snow.RSCController')
+        if rscc then
+            return rscc:getCollidable(0, 0, 0)
+        end
+    end
+    return nil
+end
+
+-- 修改碰撞箱大小
+local function modify_hurtbox_size(collidable, multiplier)
+    if not collidable then return false end
+
+    local shape = collidable:get_Shape()
+    if not shape then return false end
+
+    local shape_type = shape:get_ShapeType()
+
+    -- 类型 1: Sphere, 类型 3: Capsule, 类型 5: Box
+    if shape_type == 1 or shape_type == 3 then -- Sphere 或 Capsule
+        local current_radius = shape:get_Radius()
+        if not _hurtbox_original_radius then
+            _hurtbox_original_radius = current_radius
+        end
+        shape:set_Radius(_hurtbox_original_radius * multiplier)
+        return true
+
+    elseif shape_type == 5 then -- Box
+        if not _hurtbox_original_extent then
+            _hurtbox_original_extent = shape:get_Extent()
+        end
+        local new_extent = Vector3f.new(
+            _hurtbox_original_extent.x * multiplier,
+            _hurtbox_original_extent.y * multiplier,
+            _hurtbox_original_extent.z * multiplier
+        )
+        shape:set_Extent(new_extent)
+        return true
+    end
+
+    return false
+end
+
+-- 每帧更新碰撞箱（内部函数，由主循环调用）
+function player._update_hurtbox()
+    if not _hurtbox_initialized then return end
+
+    -- 检测武器切换，清理内部状态
+    if core._wep_type ~= _hurtbox_current_weapon_type then
+        _hurtbox_current_weapon_type = core._wep_type
+        _player_hurtbox = nil
+        _hurtbox_original_radius = nil
+        _hurtbox_original_extent = nil
+    end
+
+    -- 获取当前武器的规则
+    local current_rules = _hurtbox_scale_rules[_hurtbox_current_weapon_type]
+    if not current_rules then return end
+
+    -- 获取或更新碰撞箱引用
+    if not _player_hurtbox then
+        _player_hurtbox = get_player_hurtbox()
+        if not _player_hurtbox then return end
+    end
+
+    -- 检查碰撞箱是否仍然有效
+    if _player_hurtbox:get_reference_count() == 1 then
+        _player_hurtbox = nil
+        _hurtbox_original_radius = nil
+        _hurtbox_original_extent = nil
+        return
+    end
+
+    -- 根据当前动作ID查找规则并应用
+    local current_action_id = core._action_id
+    local rule = current_rules[current_action_id]
+
+    -- 如果没有规则，恢复默认大小
+    if not rule then
+        modify_hurtbox_size(_player_hurtbox, 1.0)
+        return
+    end
+
+    -- 获取缩放倍率和帧范围
+    local scale = 1.0
+    if type(rule) == "number" then
+        -- 兼容旧版本：直接存储的是倍率
+        scale = rule
+    else
+        -- 新版本：rule 是一个表
+        scale = rule.scale or 1.0
+
+        -- 检查帧数范围
+        if rule.frame_range then
+            local current_frame = core._action_frame
+            local start_frame = rule.frame_range[1]
+            local end_frame = rule.frame_range[2]
+
+            -- 如果当前帧不在范围内，恢复默认大小
+            if current_frame < start_frame or current_frame > end_frame then
+                modify_hurtbox_size(_player_hurtbox, 1.0)
+                return
+            end
+        end
+    end
+
+    modify_hurtbox_size(_player_hurtbox, scale)
+end
+
+-- 为特定动作设置碰撞箱缩放倍率
+---@param action_id number 动作ID
+---@param scale_multiplier number|nil 缩放倍率（nil或1.0表示移除规则）
+---@param frame_range table|nil 帧数范围，格式为 {start_frame, end_frame}，例如 {40, 100}
+function player.set_hurtbox_scale(action_id, scale_multiplier, frame_range)
+    -- 标记已初始化
+    _hurtbox_initialized = true
+
+    -- 获取当前武器类型
+    local wep_type = core._wep_type
+    if not wep_type then return end
+
+    -- 创建武器类型表
+    if not _hurtbox_scale_rules[wep_type] then
+        _hurtbox_scale_rules[wep_type] = {}
+    end
+
+    -- 设置或移除规则
+    if scale_multiplier == nil or scale_multiplier == 1.0 then
+        _hurtbox_scale_rules[wep_type][action_id] = nil
+    else
+        _hurtbox_scale_rules[wep_type][action_id] = {
+            scale = scale_multiplier,
+            frame_range = frame_range
+        }
+    end
 end
 
 return player

@@ -8,15 +8,20 @@
 -- 基础特效规则结构：
 -- {
 --     frame = 0,                     -- 触发帧（可选，默认0）或帧范围 {start, end}
---     nodeID = 0x12345678,           -- 节点ID限制（可选）
---     lastMotion = 123,              -- 前序动作限制（可选）
+--     currentNodeId = 0x12345678,    -- 当前节点ID限制（可选）或 {0x123, 0x456} 匹配任意一个
+--     preActionId = 123,             -- 前序动作ID限制（可选）或 {123, 124, 125} 匹配任意一个
 --     specialCondition = function() return true end,  -- 自定义条件（可选）
 --
---     vfx = {150, 210},              -- 视觉特效 {容器ID, 特效ID}
+--     vfx = {150, 210},              -- 视觉特效 {容器ID, 特效ID}（不受hitTrigger影响）
 --     force_release = false,         -- 是否强制释放特效（可选，默认false）
 --
---     hit = {150, 210},              -- 命中特效（单次）或 {{150, 210}, {150, 211}} （多段）
+--     hit = {150, 210},              -- 命中位置特效（单次）或 {{150, 210}, {150, 211}} （多段）
 --     isMultiHit = false,            -- 是否多段命中（可选）
+--
+--     hitTrigger = false,            -- 是否等待命中后触发（可选，默认false）
+--                                    -- true时：cameraEffect/camera_vibration/pad_vibration等待命中后触发
+--                                    -- false时：满足条件后立即触发
+--                                    -- 注意：hitTrigger不影响vfx和hit字段的行为
 --
 --     cameraEffect = { ... },        -- 相机效果（详见下方）
 --     camera_vibration = { ... },    -- 相机震动（详见下方）
@@ -87,9 +92,10 @@
 -- local effect_table = {
 --     [weapon_type.GreatSword] = {
 --         [117] = {  -- 动作ID
+--             -- 示例1：立即触发的特效（传统用法）
 --             {
 --                 frame = 0,
---                 nodeID = 0x5919622b,
+--                 currentNodeId = 0x5919622b,
 --                 vfx = {150, 210},
 --                 cameraEffect = {
 --                     fov_offset = 36,
@@ -97,12 +103,28 @@
 --                     radial_blur = 5.0,
 --                     duration = 0.5,
 --                     easing = "ease_out",
---                     -- 自定义恢复效果（可选）
 --                     reverse_duration = 0.9,
 --                     reverse_easing = "ease_in",
 --                 },
 --                 camera_vibration = {index = 6, priority = 4},
 --                 pad_vibration = {id = 20, is_loop = false},
+--             },
+--             -- 示例2：等待命中后触发的特效（新用法）
+--             {
+--                 frame = 70,                   -- 70帧之后才检测命中
+--                 hitTrigger = true,            -- 等待命中后触发
+--                 hit = {150, 300},             -- 命中位置特效（仍然正常生成）
+--                 camera_vibration = {6, 0},    -- 震动会在命中后触发
+--                 specialCondition = function()
+--                     return some_condition
+--                 end
+--             },
+--             -- 示例3：使用表格形式匹配多个前序动作
+--             {
+--                 frame = 0,
+--                 preActionId = {420, 421, 422},  -- 从这3个动作之一转换过来都会触发
+--                 vfx = {150, 501},
+--                 force_release = true,
 --             }
 --         }
 --     }
@@ -234,6 +256,7 @@ function EffectContext:reset()
     self.triggered_effects = {}
     self.hit_cache = {}
     self.hit_count = 0
+    self:clear_hit_trigger_cache()  -- 清除命中触发缓存
 end
 
 -- 更新动作历史
@@ -301,6 +324,24 @@ function EffectContext:register_hit_effect(hit_table, frame, is_multi_hit)
         frame = frame,
         is_multi_hit = is_multi_hit or false
     }
+end
+
+-- 注册命中触发的规则（新增）
+function EffectContext:register_hit_trigger_rule(rule, min_frame)
+    if not self.hit_trigger_cache then
+        self.hit_trigger_cache = {}
+    end
+
+    table.insert(self.hit_trigger_cache, {
+        rule = rule,
+        min_frame = min_frame or 0,  -- 最小触发帧（从 frame 字段获取）
+        triggered = false
+    })
+end
+
+-- 清除命中触发缓存
+function EffectContext:clear_hit_trigger_cache()
+    self.hit_trigger_cache = {}
 end
 
 -- 全局特效上下文实例
@@ -585,13 +626,24 @@ end
 ---@param rule table 特效规则
 ---@return boolean 是否满足条件
 function ConditionChecker.check_node_id(rule)
-    local nodeID = rule.nodeID
-    if nodeID == nil then
+    -- 兼容旧字段名 nodeID
+    local currentNodeId = rule.currentNodeId or rule.nodeID
+    if currentNodeId == nil then
         return true  -- 没有节点限制
     end
 
-    -- 直接使用 core 维护的当前节点ID
-    return core._current_node == nodeID
+    -- 支持表格形式：匹配任意一个节点
+    if type(currentNodeId) == "table" then
+        for _, node_id in ipairs(currentNodeId) do
+            if node_id == core._current_node then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- 单个值形式：精确匹配
+    return core._current_node == currentNodeId
 end
 
 -- 检查前序动作
@@ -599,14 +651,24 @@ end
 ---@param context table 特效上下文
 ---@return boolean 是否满足条件
 function ConditionChecker.check_motion_history(rule, context)
-    -- 检查上一个动作
-    if rule.lastMotion ~= nil then
-        if rule.lastMotion ~= context.last_motion then
-            return false
-        end
+    -- 兼容旧字段名 lastMotion
+    local preActionId = rule.preActionId or rule.lastMotion
+    if preActionId == nil then
+        return true
     end
 
-    return true
+    -- 支持表格形式：匹配任意一个前序动作
+    if type(preActionId) == "table" then
+        for _, action_id in ipairs(preActionId) do
+            if action_id == context.last_motion then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- 单个值形式：精确匹配
+    return preActionId == context.last_motion
 end
 
 -- 检查帧数范围
@@ -719,29 +781,39 @@ end
 ---@param motion_id number 动作ID
 ---@param rule_index number 规则索引
 function EffectExecutor.execute(rule, context, motion_id, rule_index)
-    -- 1. 生成视觉特效
+    -- 检查是否需要等待命中触发
+    local hit_trigger = rule.hitTrigger
+
+    -- 1. 生成视觉特效（不受 hitTrigger 影响）
     local vfx = rule.vfx
     if vfx and type(vfx) == "table" and #vfx >= 2 then
         local force_release = rule.force_release or false
         EffectExecutor.set_effect(vfx[1], vfx[2], force_release, context)
     end
 
-    -- 2. 注册命中特效
+    -- 2. 注册命中特效（不受 hitTrigger 影响，保持原有行为）
     local hit = rule.hit
-    if hit then
+    if hit and type(hit) == "table" then
         local frame = rule.frame
         local is_multi_hit = rule.isMultiHit or false
         context:register_hit_effect(hit, frame, is_multi_hit)
     end
 
-    -- 3. 注册相机效果
+    -- 3. 如果开启了 hitTrigger，注册到命中触发缓存，不立即执行
+    if hit_trigger then
+        local min_frame = type(rule.frame) == "table" and rule.frame[1] or (rule.frame or 0)
+        context:register_hit_trigger_rule(rule, min_frame)
+        return  -- 不继续执行下面的效果，等待命中后再触发
+    end
+
+    -- 4. 注册相机效果（立即执行，除非 hitTrigger=true）
     local camera_effect = rule.cameraEffect
     if camera_effect then
         local start_frame = type(rule.frame) == "table" and rule.frame[1] or (rule.frame or 0)
         camera_effect_manager:register_effect(motion_id, rule_index, camera_effect, start_frame)
     end
 
-    -- 4. 触发相机震动
+    -- 5. 触发相机震动（立即执行，除非 hitTrigger=true）
     local camera_vibration = rule.camera_vibration
     if camera_vibration then
         local index = camera_vibration.index or camera_vibration[1]
@@ -751,7 +823,7 @@ function EffectExecutor.execute(rule, context, motion_id, rule_index)
         end
     end
 
-    -- 5. 触发手柄震动
+    -- 6. 触发手柄震动（立即执行，除非 hitTrigger=true）
     local pad_vibration = rule.pad_vibration
     if pad_vibration then
         local id = pad_vibration.id or pad_vibration[1]
@@ -920,11 +992,6 @@ end
 
 -- 在敌人受伤时触发命中特效
 function effects.on_enemy_damage(dmg_info, hit_pos, player_index, weapon_type)
-    local cache = effect_context.hit_cache
-    if not cache.hit_table then
-        return
-    end
-
     -- 检查攻击者是否是主玩家
     if dmg_info:call("get_AttackerID") ~= player_index then
         return
@@ -935,32 +1002,90 @@ function effects.on_enemy_damage(dmg_info, hit_pos, player_index, weapon_type)
         return
     end
 
-    -- 检查帧数范围
-    if type(cache.frame) == "table" then
-        local current_frame = math.floor(core._action_frame)
-        if current_frame > cache.frame[2] then
-            return
+    local current_frame = math.floor(core._action_frame or 0)
+
+    -- ===== 1. 处理命中特效（VFX） =====
+    local cache = effect_context.hit_cache
+    if cache.hit_table then
+        -- 检查帧数范围
+        if type(cache.frame) == "table" then
+            if current_frame > cache.frame[2] then
+                -- 超出范围，跳过命中特效
+                goto skip_hit_vfx
+            end
+        end
+
+        -- 增加命中计数
+        effect_context.hit_count = effect_context.hit_count + 1
+
+        -- 生成命中特效
+        local hit_table = cache.hit_table
+        if type(hit_table[1]) == "table" then
+            -- 多段命中，使用对应索引的特效
+            local index = math.min(effect_context.hit_count, #hit_table)
+            EffectExecutor.set_hit_effect(hit_pos, hit_table[index][1], hit_table[index][2])
+        else
+            -- 单次命中
+            EffectExecutor.set_hit_effect(hit_pos, hit_table[1], hit_table[2])
+        end
+
+        -- 如果不是多段命中，清除缓存
+        if not cache.is_multi_hit then
+            effect_context.hit_cache = {}
+            effect_context.hit_count = 0
         end
     end
 
-    -- 增加命中计数
-    effect_context.hit_count = effect_context.hit_count + 1
+    ::skip_hit_vfx::
 
-    -- 生成命中特效
-    local hit_table = cache.hit_table
-    if type(hit_table[1]) == "table" then
-        -- 多段命中，使用对应索引的特效
-        local index = math.min(effect_context.hit_count, #hit_table)
-        EffectExecutor.set_hit_effect(hit_pos, hit_table[index][1], hit_table[index][2])
-    else
-        -- 单次命中
-        EffectExecutor.set_hit_effect(hit_pos, hit_table[1], hit_table[2])
+    -- ===== 2. 处理命中触发规则（hitTrigger） =====
+    if not effect_context.hit_trigger_cache then
+        return
     end
 
-    -- 如果不是多段命中，清除缓存
-    if not cache.is_multi_hit then
-        effect_context.hit_cache = {}
-        effect_context.hit_count = 0
+    for _, trigger_data in ipairs(effect_context.hit_trigger_cache) do
+        -- 检查是否已经触发过
+        if trigger_data.triggered then
+            goto continue
+        end
+
+        -- 检查帧数是否满足最小要求
+        if current_frame < trigger_data.min_frame then
+            goto continue
+        end
+
+        local rule = trigger_data.rule
+
+        -- 触发相机效果
+        if rule.cameraEffect then
+            -- 使用特殊ID注册（使用负数避免与正常特效冲突）
+            local motion_id = core._action_id or 0
+            local unique_id = -1000000 - current_frame  -- 使用负数ID标识命中触发
+            camera_effect_manager:register_effect(motion_id, unique_id, rule.cameraEffect, current_frame)
+        end
+
+        -- 触发相机震动
+        if rule.camera_vibration then
+            local index = rule.camera_vibration.index or rule.camera_vibration[1]
+            local priority = rule.camera_vibration.priority or rule.camera_vibration[2] or 0
+            if index then
+                effects.set_camera_vibration(index, priority)
+            end
+        end
+
+        -- 触发手柄震动
+        if rule.pad_vibration then
+            local id = rule.pad_vibration.id or rule.pad_vibration[1]
+            local is_loop = rule.pad_vibration.is_loop or rule.pad_vibration[2] or false
+            if id then
+                effects.set_pad_vibration(id, is_loop)
+            end
+        end
+
+        -- 标记为已触发
+        trigger_data.triggered = true
+
+        ::continue::
     end
 end
 
