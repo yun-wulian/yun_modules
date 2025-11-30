@@ -502,6 +502,9 @@ function DeriveExecutor.execute(target_node, rule, context, wrappered_id)
     -- 设置当前节点
     action.set_current_node(target_node)
 
+    -- 消耗翔虫（在动作改变后）
+    DeriveExecutor.consume_wire_gauge(rule)
+
     -- 应用转向
     DeriveExecutor.apply_turn(rule)
 
@@ -596,7 +599,8 @@ end
 function DeriveExecutor.consume_wire_gauge(rule)
     local useWire = rule.useWire
     if useWire ~= nil then
-        core.master_player:useHunterWireGauge(useWire[1], useWire[2])
+        -- 第二个参数必须是浮点数类型
+        core.master_player:useHunterWireGauge(useWire[1], useWire[2] * 1.0)
     end
 end
 
@@ -688,7 +692,6 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
 
             -- 检查是否在有效的输入窗口内（当前帧 >= 开始帧 - 前置帧）
             if (startFrame - preFrame) <= currentFrame then
-                DeriveExecutor.consume_wire_gauge(rule)
                 DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
                 return true
             else
@@ -701,7 +704,6 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
     -- 命中派生
     if derive_type == DeriveType.HIT then
         if ConditionChecker.check_hit_condition(rule, context) then
-            DeriveExecutor.consume_wire_gauge(rule)
             DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
             context.hit_success = -1  -- 重置命中标志
             return true
@@ -711,7 +713,6 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
     -- 反击派生
     if derive_type == DeriveType.COUNTER then
         if ConditionChecker.check_counter_condition(rule, context) then
-            DeriveExecutor.consume_wire_gauge(rule)
             DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
             context.counter_success = false  -- 重置反击标志
             return true
@@ -878,6 +879,8 @@ function derive.on_action_change()
     executeCallback()
     derive_context.hit_counter_info = {}
     derive_context.executed_special_derives = {} -- 清除特殊派生执行记录
+    derive_context.hit_success = -1 -- 清除命中标志
+    derive_context.counter_success = false -- 清除反击标志
 end
 
 -- 获取派生攻击数据（用于钩子和调试）
