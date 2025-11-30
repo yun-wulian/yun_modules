@@ -701,6 +701,7 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
     -- 命中派生
     if derive_type == DeriveType.HIT then
         if ConditionChecker.check_hit_condition(rule, context) then
+            DeriveExecutor.consume_wire_gauge(rule)
             DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
             context.hit_success = -1  -- 重置命中标志
             return true
@@ -710,6 +711,7 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
     -- 反击派生
     if derive_type == DeriveType.COUNTER then
         if ConditionChecker.check_counter_condition(rule, context) then
+            DeriveExecutor.consume_wire_gauge(rule)
             DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
             context.counter_success = false  -- 重置反击标志
             return true
@@ -875,6 +877,7 @@ function derive.on_action_change()
     jmpFrame()
     executeCallback()
     derive_context.hit_counter_info = {}
+    derive_context.executed_special_derives = {} -- 清除特殊派生执行记录
 end
 
 -- 获取派生攻击数据（用于钩子和调试）
