@@ -52,6 +52,8 @@ yun_modules.set_r_vital = player.set_r_vital
 yun_modules.get_selected_book = player.get_selected_book
 yun_modules.get_switch_skill = player.get_switch_skill
 yun_modules.set_hurtbox_scale = player.set_hurtbox_scale
+yun_modules.on_weapon_change = player.on_weapon_change
+yun_modules.get_pre_weapon_type = core.get_pre_weapon_type
 
 -- 导出动作函数
 yun_modules.action_change_functions = action.action_change_functions
@@ -120,6 +122,9 @@ core.init_singletons()
 
 -- 初始化钩子
 hooks.enable()
+
+-- 设置武器切换回调触发器
+core.set_weapon_change_trigger(player._trigger_weapon_change_callbacks)
 
 -- 注册动作改变回调
 action.on_action_change(derive.on_action_change)

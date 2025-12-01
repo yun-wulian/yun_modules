@@ -57,6 +57,7 @@ core._pre_node_id = nil         -- 前一个节点ID
 core._action_frame = nil        -- 当前动作帧
 core._current_node = nil        -- 当前行为树节点
 core._wep_type = nil            -- 武器类型
+core._pre_wep_type = nil        -- 上一个武器类型
 core._derive_start_frame = 0    -- 派生开始帧
 
 -- 玩家属性
@@ -124,7 +125,17 @@ function core.update_game_data()
     end
 
     local wep_type = core.master_player:get_field("_playerWeaponType")
-    if wep_type then core._wep_type = wep_type end
+    if wep_type then
+        -- 检测武器切换
+        if core._wep_type ~= wep_type then
+            core._pre_wep_type = core._wep_type
+            core._wep_type = wep_type
+            -- 触发武器切换回调
+            if core._pre_wep_type ~= nil then
+                core._trigger_weapon_change(wep_type, core._pre_wep_type)
+            end
+        end
+    end
 
     -- 更新UI标志（需要状态模块函数）
     -- core._should_draw_ui = enabled() and not is_pausing() and should_hud_show()
@@ -339,6 +350,21 @@ end
 ---@return any|nil 怪物实例，如果没有则返回nil
 function core.get_last_attacker_enemy()
     return core._last_attacker_enemy
+end
+
+-- 获取上一个武器类型
+---@return number|nil 上一个武器类型
+function core.get_pre_weapon_type()
+    return core._pre_wep_type
+end
+
+-- 武器切换回调触发器（由 yun_modules 主入口设置）
+core._trigger_weapon_change = function() end
+
+-- 设置武器切换回调触发器
+---@param trigger_func function 触发函数
+function core.set_weapon_change_trigger(trigger_func)
+    core._trigger_weapon_change = trigger_func
 end
 
 return core
