@@ -123,9 +123,6 @@ core.init_singletons()
 -- 初始化钩子
 hooks.enable()
 
--- 设置武器切换回调触发器
-core.set_weapon_change_trigger(player._trigger_weapon_change_callbacks)
-
 -- 注册动作改变回调
 action.on_action_change(derive.on_action_change)
 

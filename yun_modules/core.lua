@@ -90,6 +90,9 @@ core._should_draw_ui = false    -- 是否绘制UI
 -- 动作改变回调
 core.action_change_callbacks = {}
 
+-- 武器切换回调
+core.weapon_change_callbacks = {}
+
 -- 初始化单例
 function core.init_singletons()
     core.GuiManager = sdk.get_managed_singleton('snow.gui.GuiManager')
@@ -132,7 +135,7 @@ function core.update_game_data()
             core._wep_type = wep_type
             -- 触发武器切换回调
             if core._pre_wep_type ~= nil then
-                core._trigger_weapon_change(wep_type, core._pre_wep_type)
+                core.trigger_weapon_change_callbacks(wep_type, core._pre_wep_type)
             end
         end
     end
@@ -216,11 +219,16 @@ end
 function core.trigger_action_change_callbacks()
     for _, callback in ipairs(core.action_change_callbacks) do
         if type(callback) == "function" then
-            local success, err = pcall(callback)
-            if not success then
-                -- 静默处理错误，避免影响游戏
-                print("[Core] Action change callback error: " .. tostring(err))
-            end
+            pcall(callback)
+        end
+    end
+end
+
+-- 触发武器切换回调
+function core.trigger_weapon_change_callbacks(new_type, old_type)
+    for _, callback in ipairs(core.weapon_change_callbacks) do
+        if type(callback) == "function" then
+            pcall(callback, new_type, old_type)
         end
     end
 end
@@ -356,15 +364,6 @@ end
 ---@return number|nil 上一个武器类型
 function core.get_pre_weapon_type()
     return core._pre_wep_type
-end
-
--- 武器切换回调触发器（由 yun_modules 主入口设置）
-core._trigger_weapon_change = function() end
-
--- 设置武器切换回调触发器
----@param trigger_func function 触发函数
-function core.set_weapon_change_trigger(trigger_func)
-    core._trigger_weapon_change = trigger_func
 end
 
 return core
