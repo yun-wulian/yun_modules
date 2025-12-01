@@ -32,22 +32,22 @@ end
 ---@return number 玩家时间缩放
 function player.get_player_timescale()
     if not core.master_player then return end
-    if core.master_player:call("get_GameObject") == nil then return end
-    return core.master_player:call("get_GameObject"):call("get_TimeScale")
+    if core.master_player:get_GameObject() == nil then return end
+    return core.master_player:get_GameObject():get_TimeScale()
 end
 
 -- 设置玩家速度/时间缩放
 ---@param value number 时间缩放值
 function player.set_player_timescale(value)
     if not core.master_player then return end
-    if core.master_player:call("get_GameObject") == nil then return end
-    core.master_player:call("get_GameObject"):call("set_TimeScale", value + .0)
+    if core.master_player:get_GameObject() == nil then return end
+    core.master_player:get_GameObject():set_TimeScale(value + .0)
 end
 
 -- 检查master_player是否可用
 ---@return boolean 是否可用
 local function is_master_player_valid()
-    return core.master_player ~= nil and core.master_player:call("get_GameObject") ~= nil
+    return core.master_player ~= nil and core.master_player:get_GameObject() ~= nil
 end
 
 -- 获取主玩家对象
@@ -81,11 +81,11 @@ end
 ---@return number 技能等级
 function player.check_equip_skill_lv(skill)
     if not is_master_player_valid() then return 0 end
-    local skill_list = core.master_player:call("get_PlayerSkillList")
+    local skill_list = core.master_player:get_PlayerSkillList()
     if not skill_list then return 0 end
-    
+
     for i = 7, 1, -1 do
-        if skill_list:call("hasSkill", skill, i) then
+        if skill_list:hasSkill(skill, i) then
             return i
         end
     end
@@ -97,9 +97,10 @@ end
 ---@return boolean 是否拥有该技能
 function player.check_has_hyakuryu_skill(skill)
     if not is_master_player_valid() then return false end
-    local skill_list = core.master_player:call("get_PlayerSkillList")
+    local skill_list = core.master_player:get_PlayerSkillList()
     if not skill_list then return false end
-    
+
+    -- 保留 call 因为方法签名包含类型参数
     return skill_list:call("hasHyakuryuSkill(snow.data.DataDef.PlHyakuryuSkillId)", skill) == true
 end
 
@@ -199,7 +200,7 @@ end
 function player.get_selected_book()
     if not core.master_player then return nil end
     local ReplaceHolder = core.master_player:get_field("_ReplaceAtkMysetHolder")
-    return ReplaceHolder:call("getSelectedIndex")
+    return ReplaceHolder:getSelectedIndex()
 end
 
 -- 获取切换技能
@@ -258,7 +259,7 @@ local _hurtbox_original_extent = nil
 local function get_component(game_object, type_name)
     local t = sdk.typeof(type_name)
     if t == nil then return nil end
-    return game_object:call("getComponent(System.Type)", t)
+    return game_object:getComponent(t)
 end
 
 -- 获取玩家受伤碰撞箱

@@ -22,9 +22,9 @@ function state.should_hud_show()
         core.GuiManager = sdk.get_managed_singleton('snow.gui.GuiManager')
     end
     if not core.GuiManager then return false end
-    return not core.GuiManager:call("IsStartMenuAndSubmenuOpen") and
+    return not core.GuiManager:IsStartMenuAndSubmenuOpen() and
            not core.GuiManager:get_field("InvisibleAllGUI") and
-           core.GuiManager:call("isOpenHudSharpness")
+           core.GuiManager:isOpenHudSharpness()
 end
 
 -- 检查玩家是否在任务中
@@ -34,7 +34,7 @@ function state.is_in_quest()
         core.GuiManager = sdk.get_managed_singleton('snow.gui.GuiManager')
     end
     if not core.GuiManager then return false end
-    return core.is_in_quest or core.GuiManager:call("isOpenHudSharpness")
+    return core.is_in_quest or core.GuiManager:isOpenHudSharpness()
 end
 
 -- 检查游戏是否暂停
@@ -44,7 +44,7 @@ function state.is_pausing()
         core.TimeScaleManager = sdk.get_managed_singleton('snow.TimeScaleManager')
     end
     if not core.TimeScaleManager then return false end
-    return core.TimeScaleManager:call("get_Pausing")
+    return core.TimeScaleManager:get_Pausing()
 end
 
 -- 检查战斗功能是否应该启用
@@ -90,7 +90,7 @@ end
 ---@param args table 钩子参数
 function state.hook_pre_loading_update(args)
     local this = sdk.to_managed_object(args[2])
-    core.is_loading_visiable = this:call("getVisible")
+    core.is_loading_visiable = this:getVisible()
 end
 
 return state

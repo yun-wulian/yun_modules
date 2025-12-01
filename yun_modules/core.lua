@@ -111,16 +111,16 @@ function core.update_game_data()
     local success, player_index = pcall(function() return core.master_player:get_field("_PlayerIndex") end)
     if success then core.master_player_index = player_index end
 
-    local game_object = core.master_player:call("get_GameObject")
+    local game_object = core.master_player:get_GameObject()
     if game_object then
         core.mPlObj = game_object
-        local bhvt = game_object:call("getComponent(System.Type)", sdk.typeof("via.behaviortree.BehaviorTree"))
+        local bhvt = game_object:getComponent(sdk.typeof("via.behaviortree.BehaviorTree"))
         if bhvt then
             core.mPlBHVT = bhvt
         end
     end
 
-    local player_data = core.master_player:call("get_PlayerData")
+    local player_data = core.master_player:get_PlayerData()
     if player_data then
         core.player_data = player_data
         core._atk = player_data:get_field("_Attack")
@@ -145,7 +145,7 @@ function core.update_game_data()
 
     -- 安全更新行为树节点信息
     if core.mPlBHVT then
-        local current_node_id = core.mPlBHVT:call("getCurrentNodeID", 0)
+        local current_node_id = core.mPlBHVT:getCurrentNodeID(0)
         if current_node_id then
             if core._current_node ~= current_node_id then
                 core._pre_node_id = core._current_node
@@ -185,7 +185,7 @@ function core.find_master_player()
     end
     if not core.PlayerManager then return false end
 
-    core.master_player = core.PlayerManager:call("findMasterPlayer")
+    core.master_player = core.PlayerManager:findMasterPlayer()
     if not core.master_player or not core.master_player:isMasterPlayer() then
         core.master_player = nil
         return false
@@ -204,9 +204,9 @@ function core.get_current_frame()
         return 0
     end
 
-    local motion_layer = core.master_player:call("getMotionLayer", 0)
+    local motion_layer = core.master_player:getMotionLayer(0)
     if motion_layer then
-        local frame = motion_layer:call("get_Frame")
+        local frame = motion_layer:get_Frame()
         if frame then
             return math.floor(frame)
         end
@@ -245,9 +245,9 @@ function core.hook_pre_late_update(args)
 
     if PlayerBase:isMasterPlayer() then
         -- 实时更新动作帧数（无滞后性）
-        local motion_layer = PlayerBase:call("getMotionLayer", 0)
+        local motion_layer = PlayerBase:getMotionLayer(0)
         if motion_layer then
-            local frame = motion_layer:call("get_Frame")
+            local frame = motion_layer:get_Frame()
             if frame then
                 core._action_frame = math.floor(frame)
             end
@@ -329,7 +329,7 @@ function core.hook_pre_check_calc_damage(args)
         local ownerType = damageData:get_OwnerType()
 
         if ownerType == 1 then  -- 1 = Enemy (真实怪物)
-            local enemyCharacter = attackObject:call("getComponent(System.Type)",
+            local enemyCharacter = attackObject:getComponent(
                 sdk.typeof("snow.enemy.EnemyCharacterBase"))
             if enemyCharacter then
                 storage["attackerEnemy"] = enemyCharacter

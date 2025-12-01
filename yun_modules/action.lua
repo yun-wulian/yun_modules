@@ -54,7 +54,7 @@ end
 ---@param frame number 帧数
 function action.set_now_action_frame(frame)
     if not core.master_player then return end
-    return core.master_player:call("getMotionLayer", 0):call("set_Frame", frame)
+    return core.master_player:getMotionLayer(0):set_Frame(frame)
 end
 
 -- 获取当前行为树节点ID
@@ -71,7 +71,7 @@ end
 ---@param node_hash number 节点哈希
 function action.set_current_node(node_hash)
     if not core.master_player then return end
-    core.mPlBHVT:call("setCurrentNode", node_hash, nil, nil)
+    core.mPlBHVT:setCurrentNode(node_hash, nil, nil)
 end
 
 -- 检查动作ID是否在表中
@@ -121,7 +121,7 @@ function action.move_to_lstick_dir(action_id, frame_range, no_move_frame, move_m
     if core._action_id == action_id then
         local motion = core.master_player:getMotion()
         local temp_vec3 = motion:get_RootMotionTranslation()
-        local input_angle = core.master_player:call('get_RefPlayerInput'):call("getHormdirLstick")
+        local input_angle = core.master_player:get_RefPlayerInput():getHormdirLstick()
         local move_distance = math.sqrt(temp_vec3.x ^ 2 + temp_vec3.z ^ 2)
         if move_multipier then
             move_distance = move_distance * move_multipier

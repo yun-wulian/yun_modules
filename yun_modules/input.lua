@@ -8,11 +8,11 @@ local core = require("yunwulian.yun_modules.core")
 ---@return boolean 是否推动摇杆
 function input.is_push_lstick()
     if not core.master_player then return false end
-    local ref_player_input = core.master_player:call('get_RefPlayerInput')
+    local ref_player_input = core.master_player:get_RefPlayerInput()
     if not ref_player_input then return false end
-    
+
     for i = 0, 7 do
-        local is_push_lstick = ref_player_input:call("checkAnaLever", i)
+        local is_push_lstick = ref_player_input:checkAnaLever(i)
         if is_push_lstick then return true end
     end
     return false
@@ -22,19 +22,19 @@ end
 ---@param range number 转向范围
 function input.turn_to_lstick_dir(range)
     if not core.master_player then return end
-    local ref_player_input = core.master_player:call('get_RefPlayerInput')
-    local ref_angle_ctrl = core.master_player:call("get_RefAngleCtrl")
+    local ref_player_input = core.master_player:get_RefPlayerInput()
+    local ref_angle_ctrl = core.master_player:get_RefAngleCtrl()
     if not ref_player_input or not ref_angle_ctrl then return end
-    
+
     -- 检查摇杆是否被推动
     local is_push_lstick = false
     for i = 0, 7 do
-        is_push_lstick = ref_player_input:call("checkAnaLever", i)
+        is_push_lstick = ref_player_input:checkAnaLever(i)
         if is_push_lstick then break end
     end
     if not is_push_lstick then return end
-    
-    local input_angle = ref_player_input:call("getHormdirLstick")
+
+    local input_angle = ref_player_input:getHormdirLstick()
     local player_angle = ref_angle_ctrl:get_field("_targetAngle")
     range = math.rad(range)
 
@@ -70,10 +70,10 @@ end
 ---@return boolean 是否匹配方向
 function input.check_lstick_dir(direction)
     if not core.master_player then return false end
-    local ref_player_input = core.master_player:call('get_RefPlayerInput')
+    local ref_player_input = core.master_player:get_RefPlayerInput()
     if not ref_player_input then return false end
-    
-    return ref_player_input:call("checkAnaLever", direction) == true
+
+    return ref_player_input:checkAnaLever(direction) == true
 end
 
 -- 检查摇杆方向（基于玩家，8方向）
@@ -81,8 +81,8 @@ end
 ---@return boolean 是否匹配方向
 function input.check_lstick_dir_for_player(direction)
     if not input.is_push_lstick() then return false end
-    local player_angle = core.master_player:call("get_RefAngleCtrl"):get_field("_targetAngle")
-    local input_angle = core.master_player:call('get_RefPlayerInput'):call("getHormdirLstick")
+    local player_angle = core.master_player:get_RefAngleCtrl():get_field("_targetAngle")
+    local input_angle = core.master_player:get_RefPlayerInput():getHormdirLstick()
 
     local delta_angle_sin = math.sin(input_angle - player_angle)
     local delta_angle_cos = math.cos(input_angle - player_angle)
@@ -113,8 +113,8 @@ end
 ---@return boolean 是否匹配方向
 function input.check_lstick_dir_for_player_only_quad(direction)
     if not input.is_push_lstick() then return false end
-    local player_angle = core.master_player:call("get_RefAngleCtrl"):get_field("_targetAngle")
-    local input_angle = core.master_player:call('get_RefPlayerInput'):call("getHormdirLstick")
+    local player_angle = core.master_player:get_RefAngleCtrl():get_field("_targetAngle")
+    local input_angle = core.master_player:get_RefPlayerInput():getHormdirLstick()
 
     local delta_angle_sin = math.sin(input_angle - player_angle)
     local delta_angle_cos = math.cos(input_angle - player_angle)
@@ -140,13 +140,13 @@ function input.check_input_by_isOn(cmd)
     local isAnyKeyPressed = false
     if type(cmd) == "table" then
         for _, key in ipairs(cmd) do
-            if core.master_player:call('get_RefPlayerInput'):call("get_mNow"):call("isOn", key) then
+            if core.master_player:get_RefPlayerInput():get_mNow():isOn(key) then
                 isAnyKeyPressed = true
                 break
             end
         end
     else
-        isAnyKeyPressed = core.master_player:call('get_RefPlayerInput'):call("get_mNow"):call("isOn", cmd)
+        isAnyKeyPressed = core.master_player:get_RefPlayerInput():get_mNow():isOn(cmd)
     end
     return isAnyKeyPressed
 end
@@ -160,13 +160,13 @@ function input.check_input_by_isCmd(cmd)
     local isAnyKeyPressed = false
     if type(cmd) == "table" then
         for _, key in ipairs(cmd) do
-            if core.master_player:call('get_RefPlayerInput'):call("isCmd", sdk.to_ptr(key)) then
+            if core.master_player:get_RefPlayerInput():isCmd(sdk.to_ptr(key)) then
                 isAnyKeyPressed = true
                 break
             end
         end
     else
-        isAnyKeyPressed = core.master_player:call('get_RefPlayerInput'):call("isCmd", sdk.to_ptr(cmd))
+        isAnyKeyPressed = core.master_player:get_RefPlayerInput():isCmd(sdk.to_ptr(cmd))
     end
     return isAnyKeyPressed
 end

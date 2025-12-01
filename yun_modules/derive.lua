@@ -1206,8 +1206,8 @@ end
 
 -- 钩子：命中检测 - 前置处理
 function derive.hook_pre_after_calc_damage(hitInfo)
-    local damageData = hitInfo:call("get_AttackData")
-    local dmgOwnerType = damageData:call("get_OwnerType")
+    local damageData = hitInfo:get_AttackData()
+    local dmgOwnerType = damageData:get_OwnerType()
 
     if dmgOwnerType == 2 then
         -- 处理命中信息

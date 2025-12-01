@@ -196,7 +196,7 @@ end
 ---@param efx number 特效ID
 function effects.set_effect(container, efx)
     if not core.master_player then return end
-    core.master_player:call("setItemEffect", container, efx)
+    core.master_player:setItemEffect(container, efx)
 end
 
 -- 触发相机震动
@@ -379,7 +379,7 @@ end
 
 -- 检查是否暂停
 function CameraEffectManager:is_paused()
-    return core.TimeScaleManager and core.TimeScaleManager:call("get__Pausing")
+    return core.TimeScaleManager and core.TimeScaleManager:get__Pausing()
 end
 
 -- 注册一个新的相机效果
@@ -427,13 +427,13 @@ function CameraEffectManager:get_camera_joint()
     local camera = sdk.get_primary_camera()
     if not camera then return nil end
 
-    local camera_gameobject = camera:call("get_GameObject")
+    local camera_gameobject = camera:get_GameObject()
     if not camera_gameobject then return nil end
 
-    local camera_transform = camera_gameobject:call("get_Transform")
+    local camera_transform = camera_gameobject:get_Transform()
     if not camera_transform then return nil end
 
-    return camera_transform:call("get_Joints"):get_elements()[1]
+    return camera_transform:get_Joints():get_elements()[1]
 end
 
 -- 更新逻辑：计算所有效果的偏移量（在UpdateScene中调用）
@@ -559,9 +559,9 @@ function CameraEffectManager:apply_to_camera()
 
     -- 应用FOV增量（只在偏移量变化时写入）
     if self.computed_fov_offset ~= self.last_fov_offset then
-        local current_fov = camera:call("get_FOV")
+        local current_fov = camera:get_FOV()
         local delta = self.computed_fov_offset - self.last_fov_offset
-        camera:call("set_FOV", current_fov + delta)
+        camera:set_FOV(current_fov + delta)
         self.last_fov_offset = self.computed_fov_offset
     end
 
@@ -569,12 +569,12 @@ function CameraEffectManager:apply_to_camera()
     if self.computed_distance_offset ~= 0 then
         local camera_joint = self:get_camera_joint()
         if camera_joint then
-            local cam_pos = camera_joint:call("get_LocalPosition")
+            local cam_pos = camera_joint:get_LocalPosition()
             -- 复用Vector3f对象，避免每帧创建新对象
             self.reused_vector.x = cam_pos.x
             self.reused_vector.y = cam_pos.y
             self.reused_vector.z = cam_pos.z - self.computed_distance_offset
-            camera_joint:call("set_LocalPosition", self.reused_vector)
+            camera_joint:set_LocalPosition(self.reused_vector)
         end
     end
 end
@@ -587,8 +587,8 @@ function CameraEffectManager:clear_all()
     if self.last_fov_offset ~= 0 then
         local camera = sdk.get_primary_camera()
         if camera then
-            local current_fov = camera:call("get_FOV")
-            camera:call("set_FOV", current_fov - self.last_fov_offset)
+            local current_fov = camera:get_FOV()
+            camera:set_FOV(current_fov - self.last_fov_offset)
         end
         self.last_fov_offset = 0
     end
@@ -744,7 +744,7 @@ function EffectExecutor.set_effect(container, effect, force_release, context)
         context:register_effect_instance(instance)
     else
         -- 普通特效，使用 setItemEffect（无返回值）
-        core.master_player:call("setItemEffect", container, effect)
+        core.master_player:setItemEffect(container, effect)
     end
 end
 
@@ -761,7 +761,7 @@ function EffectExecutor.set_hit_effect(hit_position, container, effect)
     effectContainer.ContainerID = container
     effectContainer.ElementID = effect
 
-    local effManager = core.master_player:call("getObjectEffectManager")
+    local effManager = core.master_player:getObjectEffectManager()
     if not effManager then
         return
     end
@@ -993,7 +993,7 @@ end
 -- 在敌人受伤时触发命中特效
 function effects.on_enemy_damage(dmg_info, hit_pos, player_index, weapon_type)
     -- 检查攻击者是否是主玩家
-    if dmg_info:call("get_AttackerID") ~= player_index then
+    if dmg_info:get_AttackerID() ~= player_index then
         return
     end
 
@@ -1106,7 +1106,7 @@ function effects.apply_radial_blur(is_org_blur_enabled)
         return
     end
 
-    local post_effect = core.GameCamera:call("get_GameObject"):call("getComponent(System.Type)",
+    local post_effect = core.GameCamera:get_GameObject():getComponent(
         sdk.typeof("snow.SnowPostEffectParam"))
     if not post_effect then
         return
@@ -1117,7 +1117,7 @@ function effects.apply_radial_blur(is_org_blur_enabled)
         return
     end
 
-    local radial_blur_param = ldr_post_process:call("get_RadialBlur")
+    local radial_blur_param = ldr_post_process:get_RadialBlur()
     if not radial_blur_param then
         return
     end
@@ -1133,28 +1133,28 @@ function effects.apply_radial_blur(is_org_blur_enabled)
         return
     end
 
-    local radial_blur_component = pt_behavior:call("getRadialBlurComponent")
+    local radial_blur_component = pt_behavior:getRadialBlurComponent()
     if not radial_blur_component then
         return
     end
 
     -- 如果游戏原本没有开启径向模糊，设置默认参数
     if not is_org_blur_enabled then
-        local color = radial_blur_component:call("get_Color")
-        color:call("set_r", 255)
-        color:call("set_g", 255)
-        color:call("set_b", 255)
-        color:call("set_a", 255)
-        radial_blur_component:call("set_Color", color)
-        radial_blur_component:call("set_ColorRate", 1.0)
-        radial_blur_component:call("set_OccludeScale", 1.0)
-        radial_blur_component:call("set_OccludeSampleNum", 16)
-        radial_blur_component:call("setLookAtType", 1)
+        local color = radial_blur_component:get_Color()
+        color:set_r(255)
+        color:set_g(255)
+        color:set_b(255)
+        color:set_a(255)
+        radial_blur_component:set_Color(color)
+        radial_blur_component:set_ColorRate(1.0)
+        radial_blur_component:set_OccludeScale(1.0)
+        radial_blur_component:set_OccludeSampleNum(16)
+        radial_blur_component:setLookAtType(1)
     end
 
     -- 应用模糊强度和启用状态
-    radial_blur_param:call("set_BlurPower", current_blur)
-    radial_blur_param:call("set_Enabled", current_blur > 0)
+    radial_blur_param:set_BlurPower(current_blur)
+    radial_blur_param:set_Enabled(current_blur > 0)
 end
 
 -- ============================================================================
@@ -1182,7 +1182,7 @@ function effects.hook_pre_enemy_damage(args)
     if not core.master_player then return end
 
     local dmg_info = sdk.to_managed_object(args[3])
-    local hit_pos = dmg_info:call("get_HitPos")
+    local hit_pos = dmg_info:get_HitPos()
     local player_index = core.master_player_index
     local weapon_type = core._wep_type
 
