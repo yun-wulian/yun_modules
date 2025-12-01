@@ -72,6 +72,9 @@ core._slash_axe_motion_value = 0           -- 斩击斧动作值
 core._motion_value_id = nil                -- 动作值ID
 core._slash_axe_motion_value_id = nil      -- 斩击斧动作值ID
 
+-- 战斗交互
+core._last_attacker_enemy = nil            -- 上一次攻击玩家的怪物实例
+
 -- 攻击/会心率覆盖
 core.player_atk = nil           -- 玩家攻击力
 core.player_affinity = nil      -- 玩家会心率
@@ -294,8 +297,31 @@ end
 ---@param args table 钩子参数
 function core.hook_pre_check_calc_damage(args)
     local storage = thread.get_hook_storage()
+    local hitInfo = sdk.to_managed_object(args[3])
+
     storage["refPlayer"] = sdk.to_managed_object(args[2])
-    storage["damageData"] = sdk.to_managed_object(args[3]):get_AttackData()
+
+    local damageData = hitInfo:get_AttackData()
+    storage["damageData"] = damageData
+
+    -- 提取攻击者怪物实例（过滤掉 shell）
+    local attackObject = hitInfo:get_AttackObject()
+    if attackObject and damageData then
+        local ownerType = damageData:get_OwnerType()
+
+        if ownerType == 1 then  -- 1 = Enemy (真实怪物)
+            local enemyCharacter = attackObject:call("getComponent(System.Type)",
+                sdk.typeof("snow.enemy.EnemyCharacterBase"))
+            if enemyCharacter then
+                storage["attackerEnemy"] = enemyCharacter
+                core._last_attacker_enemy = enemyCharacter
+            end
+        elseif ownerType == 2 then  -- 2 = EnemyShell (远程攻击)
+            -- 清空攻击者，避免反击错误的怪物
+            storage["attackerEnemy"] = nil
+            core._last_attacker_enemy = nil
+        end
+    end
 end
 
 function core.hook_post_check_calc_damage(retval)
@@ -303,6 +329,16 @@ function core.hook_post_check_calc_damage(retval)
         return retval
     end
     return retval
+end
+
+-- ============================================================================
+-- 战斗交互函数
+-- ============================================================================
+
+-- 获取上一次攻击玩家的怪物实例
+---@return any|nil 怪物实例，如果没有则返回nil
+function core.get_last_attacker_enemy()
+    return core._last_attacker_enemy
 end
 
 return core

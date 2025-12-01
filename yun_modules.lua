@@ -15,6 +15,7 @@ local effects = require("yunwulian.yun_modules.effects")
 local derive = require("yunwulian.yun_modules.derive")
 local hooks = require("yunwulian.yun_modules.hooks")
 local ui = require("yunwulian.yun_modules.ui")
+local enemy = require("yunwulian.yun_modules.enemy")
 
 -- 导出枚举类型
 yun_modules.weapon_type = core.weapon_type
@@ -105,6 +106,14 @@ yun_modules.deriveTable = derive.deriveTable
 yun_modules.push_derive_table = derive.push_derive_table
 yun_modules.hook_evaluate_post = derive.hook_evaluate_post
 yun_modules.push_evaluate_post_functions = derive.push_evaluate_post_functions
+
+-- 导出怪物相关函数
+yun_modules.flinch_type = enemy.flinch_type
+yun_modules.set_flinch = enemy.set_flinch
+yun_modules.trigger_knockback = enemy.trigger_knockback
+yun_modules.trigger_parts_break = enemy.trigger_parts_break
+yun_modules.trigger_parts_loss = enemy.trigger_parts_loss
+yun_modules.get_last_attacker_enemy = core.get_last_attacker_enemy
 
 -- 初始化单例
 core.init_singletons()
