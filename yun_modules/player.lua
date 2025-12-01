@@ -4,14 +4,11 @@
 local player = {}
 local core = require("yunwulian.yun_modules.core")
 
--- 武器切换回调（直接引用 core 中的回调数组）
-player.weapon_change_callbacks = core.weapon_change_callbacks
-
 -- 添加武器切换回调函数
 ---@param callback function 回调函数，接收参数 (new_weapon_type, old_weapon_type)
 function player.on_weapon_change(callback)
     if type(callback) == "function" then
-        table.insert(player.weapon_change_callbacks, callback)
+        table.insert(core.weapon_change_callbacks, callback)
     end
 end
 
