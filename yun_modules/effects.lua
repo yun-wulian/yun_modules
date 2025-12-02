@@ -1063,11 +1063,17 @@ function EffectExecutor.set_effect(container, effect, force_release, context)
 
     if force_release then
         -- 需要强制释放的特效，使用 setEffect 获取实例
-        local instance = core.master_player:setEffect(container, effect)
-        context:register_effect_instance(instance)
+        local success, instance = pcall(function()
+            return core.master_player:setEffect(container, effect)
+        end)
+        if success and instance then
+            context:register_effect_instance(instance)
+        end
     else
         -- 普通特效，使用 setItemEffect（无返回值）
-        core.master_player:setItemEffect(container, effect)
+        pcall(function()
+            core.master_player:setItemEffect(container, effect)
+        end)
     end
 end
 
