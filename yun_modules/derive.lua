@@ -865,7 +865,7 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
         -- 关键修复：验证 input_cache 是否匹配当前规则的 targetNode，并且是在有效的输入窗口内缓存的
         if context.input_cache ~= 0 and context.input_cache == targetNode then
             -- 额外的验证：确保当前帧在输入窗口内，避免使用过期的缓存
-            local startFrame = rule.startFrame or core._derive_start_frame
+            local startFrame = get_start_frame(rule)
             local preFrame = rule.preFrame or CONST.DEFAULT_PRE_FRAME
             local currentFrame = core._action_frame
 
