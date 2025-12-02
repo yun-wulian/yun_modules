@@ -134,9 +134,15 @@ re.on_pre_application_entry("UpdateScene", function()
         return
     end
 
-    -- Update core camera manager
+    -- 刷新可能在启动时未初始化的单例
     if not core.CameraManager then
         core.CameraManager = sdk.get_managed_singleton("snow.CameraManager")
+    end
+    if not core.GameCamera then
+        core.GameCamera = sdk.get_managed_singleton("snow.GameCamera")
+    end
+    if not core.TimeScaleManager then
+        core.TimeScaleManager = sdk.get_managed_singleton("snow.TimeScaleManager")
     end
     if not core.CameraManager then return end
 
