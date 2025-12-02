@@ -438,11 +438,22 @@ function ConditionChecker.check_preconditions(rule)
     return true
 end
 
+-- 获取派生的开始帧（自动派生默认0，普通派生默认使用游戏原始帧）
+---@param rule table 派生规则
+---@return number 开始帧
+local function get_start_frame(rule)
+    if rule.startFrame ~= nil then
+        return rule.startFrame
+    end
+    -- 自动派生（无targetCmd）默认立即执行，普通派生使用游戏默认帧
+    return rule.targetCmd == nil and 0 or core._derive_start_frame
+end
+
 -- 检查是否在输入窗口内
 ---@param rule table 派生规则
 ---@return boolean 是否在输入窗口内
 function ConditionChecker.check_input_window(rule)
-    local startFrame = rule.startFrame or core._derive_start_frame
+    local startFrame = get_start_frame(rule)
     local preFrame = rule.preFrame or CONST.DEFAULT_PRE_FRAME
 
     -- 在输入窗口内：当前帧 >= (开始帧 - 前置帧)
@@ -453,8 +464,7 @@ end
 ---@param rule table 派生规则
 ---@return boolean 是否到达开始帧
 function ConditionChecker.check_start_frame(rule)
-    local startFrame = rule.startFrame or core._derive_start_frame
-    return startFrame <= core._action_frame
+    return get_start_frame(rule) <= core._action_frame
 end
 
 -- 检查翔虫数量
