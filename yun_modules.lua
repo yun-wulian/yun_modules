@@ -118,6 +118,20 @@ yun_modules.trigger_parts_break = enemy.trigger_parts_break
 yun_modules.trigger_parts_loss = enemy.trigger_parts_loss
 yun_modules.get_last_attacker_enemy = core.get_last_attacker_enemy
 
+-- 导出距离计算函数
+yun_modules.get_distance_between = utils.get_distance_between
+yun_modules.get_entity_position = utils.get_entity_position
+
+-- 检查敌人是否在玩家指定范围内
+---@param enemy_instance userdata 敌人实例
+---@param max_distance number 最大距离
+---@return boolean 是否在范围内
+function yun_modules.is_enemy_in_range(enemy_instance, max_distance)
+    local mp = core.master_player
+    if not mp or not enemy_instance then return false end
+    return utils.get_distance_between(mp, enemy_instance) <= max_distance
+end
+
 -- 初始化单例
 core.init_singletons()
 

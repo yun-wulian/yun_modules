@@ -113,12 +113,56 @@ end
 function utils.get_game_time()
     local appType = sdk.find_type_definition("via.Application")
     if not appType then return 0 end
-    
+
     local get_UpTimeSecond = appType:get_method("get_UpTimeSecond")
     if not get_UpTimeSecond then return 0 end
-    
+
     local result = get_UpTimeSecond:call(nil)
     return result or 0
+end
+
+-- ============================================================================
+-- 距离计算函数
+-- ============================================================================
+
+-- 获取两个实体之间的距离
+---@param entity1 userdata 实体1（需要有get_GameObject方法）
+---@param entity2 userdata 实体2（需要有get_GameObject方法）
+---@return number 距离（如果无法计算则返回math.huge）
+function utils.get_distance_between(entity1, entity2)
+    if not entity1 or not entity2 then return math.huge end
+
+    local go1 = entity1:get_GameObject()
+    local go2 = entity2:get_GameObject()
+    if not go1 or not go2 then return math.huge end
+
+    local tf1 = go1:get_Transform()
+    local tf2 = go2:get_Transform()
+    if not tf1 or not tf2 then return math.huge end
+
+    local pos1 = tf1:get_Position()
+    local pos2 = tf2:get_Position()
+    if not pos1 or not pos2 then return math.huge end
+
+    local dx = pos1.x - pos2.x
+    local dy = pos1.y - pos2.y
+    local dz = pos1.z - pos2.z
+    return math.sqrt(dx*dx + dy*dy + dz*dz)
+end
+
+-- 获取实体的世界坐标
+---@param entity userdata 实体（需要有get_GameObject方法）
+---@return userdata|nil 位置向量，失败返回nil
+function utils.get_entity_position(entity)
+    if not entity then return nil end
+
+    local go = entity:get_GameObject()
+    if not go then return nil end
+
+    local tf = go:get_Transform()
+    if not tf then return nil end
+
+    return tf:get_Position()
 end
 
 return utils
