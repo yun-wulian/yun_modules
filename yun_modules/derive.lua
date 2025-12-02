@@ -1057,6 +1057,7 @@ function derive.on_action_change()
     jmpFrame()
     executeCallback()
     derive_context.hit_counter_info = {}
+    derive_context.need_hit_info = {} -- 清除命中信息
     derive_context.executed_special_derives = {} -- 清除特殊派生执行记录
     derive_context.hit_success = -1 -- 清除命中标志
     derive_context.counter_success = false -- 清除反击标志
