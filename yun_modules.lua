@@ -96,6 +96,7 @@ yun_modules.set_pad_vibration = effects.set_pad_vibration
 -- 导出特效系统（状态机）
 yun_modules.effectTable = effects.effectTable
 yun_modules.push_effect_table = effects.push_effect_table
+yun_modules.on_action_status = effects.on_action_status  -- 攻击判定状态枚举
 
 -- 导出相机效果直接调用接口
 yun_modules.trigger_camera_effect = effects.trigger_camera_effect

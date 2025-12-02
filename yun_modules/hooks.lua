@@ -108,17 +108,14 @@ local post_hook_radial_blur_apply = function(retval)
     return retval
 end
 
--- ============================================================================
--- 清空钩子函数
--- ============================================================================
-
-local pre_hook_clear = function(args)
-    return sdk.PreHookResult.CALL_ORIGINAL
+local pre_hook_attack_work_activate = function(args)
+    effects.hook_pre_attack_work_activate(args)
 end
 
-local post_hook_clear = function(retval)
-    return retval
+local pre_hook_attack_work_destroy = function(args)
+    effects.hook_pre_attack_work_destroy(args)
 end
+
 
 -- ============================================================================
 -- 钩子注册和启用/禁用
@@ -177,33 +174,19 @@ function hooks.enable()
     -- 钩子：径向模糊 - 应用参数
     sdk.hook(sdk.find_type_definition("snow.SnowPostEffectParam.SnowLDRPostProcess"):get_method("applyParameters"), pre_hook_radial_blur_apply, post_hook_radial_blur_apply)
 
+    -- 钩子：攻击判定激活（攻击判定产生时触发，会持续调用）
+    sdk.hook(sdk.find_type_definition("snow.hit.AttackWork"):get_method("activate"), pre_hook_attack_work_activate)
+
+    -- 钩子：攻击判定销毁（攻击判定结束时触发）
+    sdk.hook(sdk.find_type_definition("snow.hit.AttackWork"):get_method("destroy"), pre_hook_attack_work_destroy)
+
     enabled = true
 end
 
+-- 注意：REFramework 的 hook 是叠加制的，无法通过添加空钩子来禁用
+-- yunwulian 的钩子设计为持续运行，不需要禁用
 function hooks.disable()
-    if not enabled then
-        return
-    end
-
-    -- 清空所有钩子
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerMotionControl"):get_method("lateUpdate"), pre_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("calcTotalAffinity"), pre_hook_clear, post_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("calcTotalAttack"), pre_hook_clear, post_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("getElementSharpnessAdjust"), pre_hook_clear, post_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("getAdjustTotalStunAttack"), pre_hook_clear, post_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("getAdjustTotalStaminaAttack"), pre_hook_clear, post_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.NowLoading"):get_method("update"), pre_hook_clear, post_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.QuestManager"):get_method("onChangedGameStatus"), pre_hook_clear, post_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("getAdjustStunAttack"), pre_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.player.SlashAxe"):get_method("getAdjustStunAttack"), pre_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.player.fsm.PlayerFsm2CommandBase"):get_method("evaluate"), pre_hook_clear, post_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("checkCalcDamage_DamageSide"), pre_hook_clear, post_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("afterCalcDamage_AttackSide"), pre_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.enemy.EnemyCharacterBase"):get_method("afterCalcDamage_DamageSide"), pre_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.SnowPostEffectParam.SnowLDRPostProcess.SnowLDRRadialBlur"):get_method("set_Enabled"), pre_hook_clear, post_hook_clear)
-    sdk.hook(sdk.find_type_definition("snow.SnowPostEffectParam.SnowLDRPostProcess"):get_method("applyParameters"), pre_hook_clear, post_hook_clear)
-
-    enabled = false
+    -- 保留接口但不执行任何操作
 end
 
 return hooks

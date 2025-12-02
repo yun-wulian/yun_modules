@@ -129,11 +129,67 @@
 --         }
 --     }
 -- }
+--
+-- ============================================================================
+-- 攻击判定特效（on_action_status.AttackActive）使用说明
+-- ============================================================================
+--
+-- 使用 on_action_status.AttackActive 作为键，可以在攻击判定产生时触发特效，
+-- 并在攻击判定结束时自动回收特效。
+--
+-- 特点：
+-- - 特效在 AttackWork:activate 时触发（攻击判定产生，首次调用时触发）
+-- - 特效在 AttackWork:destroy 时自动回收（攻击判定结束）
+-- - 默认 force_release = true，确保特效被正确回收
+-- - 支持所有常规规则条件（specialCondition, currentNodeId, preActionId, actionId, frame）
+--
+-- 规则结构（新增 actionId 字段用于过滤特定动作）：
+-- {
+--     actionId = 123,                -- 当前动作ID限制（可选）或 {123, 124} 匹配任意一个
+--     currentNodeId = 0x12345678,    -- 当前节点ID限制（可选）
+--     preActionId = 123,             -- 前序动作ID限制（可选）
+--     frame = 0,                     -- 帧数限制（可选）
+--     specialCondition = function() return true end,  -- 自定义条件（可选）
+--     vfx = {150, 300},              -- 视觉特效（攻击判定期间显示，结束时自动回收）
+--     force_release = true,          -- 默认为true，设为false则不回收
+-- }
+--
+-- 示例：
+-- local effect_table = {
+--     [weapon_type.ChargeAxe] = {
+--         [on_action_status.AttackActive] = {
+--             -- 所有盾斧攻击有判定时触发
+--             {
+--                 vfx = {150, 300},
+--             },
+--             -- 只在特定动作时触发
+--             {
+--                 actionId = {117, 118, 119},  -- 只在这些动作ID时触发
+--                 vfx = {150, 301},
+--             },
+--             -- 带条件的攻击判定特效
+--             {
+--                 specialCondition = function()
+--                     return some_gauge >= 100
+--                 end,
+--                 vfx = {150, 302},
+--             },
+--         },
+--     }
+-- }
 -- ============================================================================
 
 local effects = {}
 local core = require("yunwulian.yun_modules.core")
 local utils = require("yunwulian.yun_modules.utils")
+
+-- ============================================================================
+-- 动作状态枚举 - 用于特效表的特殊键
+-- ============================================================================
+
+effects.on_action_status = {
+    AttackActive = "AttackActive"  -- 攻击判定激活时（从initialize到destroy）
+}
 
 -- ============================================================================
 -- 缓动函数库
@@ -346,6 +402,273 @@ end
 
 -- 全局特效上下文实例
 local effect_context = EffectContext.new()
+
+-- ============================================================================
+-- 攻击判定特效管理器 - 管理基于攻击判定的特效
+-- ============================================================================
+
+local AttackActiveEffectManager = {}
+AttackActiveEffectManager.__index = AttackActiveEffectManager
+
+function AttackActiveEffectManager.new()
+    local self = setmetatable({}, AttackActiveEffectManager)
+
+    -- 活跃的攻击判定特效
+    -- key: attack_work实例的内存地址
+    -- value: { effect_instances = {}, weapon_type = number }
+    self.active_attack_effects = {}
+
+    return self
+end
+
+-- 查找匹配的攻击判定特效规则
+---@param weapon_type number 武器类型
+---@return table|nil 特效规则列表
+function AttackActiveEffectManager:find_attack_active_rules(weapon_type)
+    for _, sub_effect_table in ipairs(effects.effectTable) do
+        if sub_effect_table[weapon_type] then
+            local weapon_table = sub_effect_table[weapon_type]
+            if weapon_table[effects.on_action_status.AttackActive] then
+                return weapon_table[effects.on_action_status.AttackActive]
+            end
+        end
+    end
+    return nil
+end
+
+-- 检查规则是否满足条件（使用现有的条件检查器）
+---@param rule table 特效规则
+---@param current_frame number 当前帧数
+---@return boolean 是否满足条件
+function AttackActiveEffectManager:check_rule_conditions(rule, current_frame)
+    -- 1. 检查特殊条件
+    if rule.specialCondition then
+        local success, result = pcall(rule.specialCondition)
+        if not success or result ~= true then
+            return false
+        end
+    end
+
+    -- 2. 检查节点ID（支持单个值或表格）
+    local currentNodeId = rule.currentNodeId or rule.nodeID
+    if currentNodeId ~= nil then
+        if type(currentNodeId) == "table" then
+            local matched = false
+            for _, node_id in ipairs(currentNodeId) do
+                if node_id == core._current_node then
+                    matched = true
+                    break
+                end
+            end
+            if not matched then
+                return false
+            end
+        else
+            if core._current_node ~= currentNodeId then
+                return false
+            end
+        end
+    end
+
+    -- 3. 检查前序动作（支持单个值或表格）
+    local preActionId = rule.preActionId or rule.lastMotion
+    if preActionId ~= nil then
+        if type(preActionId) == "table" then
+            local matched = false
+            for _, action_id in ipairs(preActionId) do
+                if action_id == core._pre_action_id then
+                    matched = true
+                    break
+                end
+            end
+            if not matched then
+                return false
+            end
+        else
+            if preActionId ~= core._pre_action_id then
+                return false
+            end
+        end
+    end
+
+    -- 4. 检查当前动作ID（新增：可选过滤特定动作）
+    local actionId = rule.actionId
+    if actionId ~= nil then
+        if type(actionId) == "table" then
+            local matched = false
+            for _, act_id in ipairs(actionId) do
+                if act_id == core._action_id then
+                    matched = true
+                    break
+                end
+            end
+            if not matched then
+                return false
+            end
+        else
+            if actionId ~= core._action_id then
+                return false
+            end
+        end
+    end
+
+    -- 5. 检查帧数范围（可选）
+    if rule.frame ~= nil then
+        local frame = rule.frame
+        if type(frame) == "table" then
+            if current_frame < frame[1] or current_frame > frame[2] then
+                return false
+            end
+        else
+            if current_frame < frame then
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
+-- 检查attack_work是否已处理过
+---@param attack_work_id number attack_work的内存地址
+---@return boolean 是否已处理
+function AttackActiveEffectManager:is_attack_work_processed(attack_work_id)
+    return self.active_attack_effects[attack_work_id] ~= nil
+end
+
+-- 攻击判定激活时触发特效（首次activate调用时触发）
+---@param attack_work userdata AttackWork实例
+---@param weapon_type number 武器类型
+function AttackActiveEffectManager:on_attack_activate(attack_work, weapon_type)
+    if not attack_work or not core.master_player then
+        return
+    end
+
+    -- 查找匹配的规则
+    local rules = self:find_attack_active_rules(weapon_type)
+    if not rules then
+        return
+    end
+
+    -- 获取attack_work的唯一标识（内存地址）
+    local attack_work_id = attack_work:get_address()
+
+    -- 如果已经存在，跳过（防止重复触发）
+    if self.active_attack_effects[attack_work_id] then
+        return
+    end
+
+    -- 获取当前帧数
+    local current_frame = math.floor(core._action_frame or 0)
+
+    -- 创建特效实例存储
+    local effect_data = {
+        effect_instances = {},
+        weapon_type = weapon_type
+    }
+
+    -- 遍历规则，生成特效
+    for rule_index, rule in ipairs(rules) do
+        -- 使用条件检查器检查所有条件
+        if not self:check_rule_conditions(rule, current_frame) then
+            goto continue
+        end
+
+        -- 生成视觉特效
+        if rule.vfx and type(rule.vfx) == "table" and #rule.vfx >= 2 then
+            local force_release = rule.force_release
+            -- 默认为true，因为攻击判定特效需要在结束时回收
+            if force_release == nil then
+                force_release = true
+            end
+
+            if force_release then
+                -- 使用 setEffect 获取实例，以便后续回收
+                local instance = core.master_player:setEffect(rule.vfx[1], rule.vfx[2])
+                if instance then
+                    table.insert(effect_data.effect_instances, {
+                        instance = instance,
+                        rule_index = rule_index
+                    })
+                end
+            else
+                -- 不需要回收的特效
+                core.master_player:setItemEffect(rule.vfx[1], rule.vfx[2])
+            end
+        end
+
+        -- 触发相机震动
+        if rule.camera_vibration then
+            local index = rule.camera_vibration.index or rule.camera_vibration[1]
+            local priority = rule.camera_vibration.priority or rule.camera_vibration[2] or 0
+            if index then
+                effects.set_camera_vibration(index, priority)
+            end
+        end
+
+        -- 触发手柄震动
+        if rule.pad_vibration then
+            local id = rule.pad_vibration.id or rule.pad_vibration[1]
+            local is_loop = rule.pad_vibration.is_loop or rule.pad_vibration[2] or false
+            if id then
+                effects.set_pad_vibration(id, is_loop)
+            end
+        end
+
+        ::continue::
+    end
+
+    -- 始终存储记录（用于标记已处理，防止activate持续调用时重复触发）
+    self.active_attack_effects[attack_work_id] = effect_data
+end
+
+-- 攻击判定结束时回收特效
+---@param attack_work userdata AttackWork实例
+function AttackActiveEffectManager:on_attack_destroy(attack_work)
+    if not attack_work then
+        return
+    end
+
+    -- 获取attack_work的唯一标识
+    local attack_work_id = attack_work:get_address()
+
+    -- 查找并回收特效
+    local effect_data = self.active_attack_effects[attack_work_id]
+    if effect_data then
+        -- 回收所有特效实例
+        for _, effect_info in ipairs(effect_data.effect_instances) do
+            local instance = effect_info.instance
+            if instance then
+                pcall(function()
+                    instance:finishAll()
+                    instance:force_release()
+                end)
+            end
+        end
+
+        -- 移除记录
+        self.active_attack_effects[attack_work_id] = nil
+    end
+end
+
+-- 清除所有攻击判定特效（动作改变或任务状态改变时调用）
+function AttackActiveEffectManager:clear_all()
+    for _, effect_data in pairs(self.active_attack_effects) do
+        for _, effect_info in ipairs(effect_data.effect_instances) do
+            local instance = effect_info.instance
+            if instance then
+                pcall(function()
+                    instance:finishAll()
+                    instance:force_release()
+                end)
+            end
+        end
+    end
+    self.active_attack_effects = {}
+end
+
+-- 全局攻击判定特效管理器实例
+local attack_active_effect_manager = AttackActiveEffectManager.new()
 
 -- ============================================================================
 -- 相机效果管理器 - 管理持续的相机效果（FOV、偏移、径向模糊等）
@@ -1201,6 +1524,55 @@ function effects.hook_pre_radial_blur_apply()
     -- 调用特效系统处理径向模糊
     effects.apply_radial_blur(is_org_blur_enabled)
     is_org_blur_enabled = nil
+end
+
+-- 钩子：攻击判定激活（攻击判定产生时触发，会持续调用）
+---@param args table 钩子参数
+function effects.hook_pre_attack_work_activate(args)
+    if not core.master_player or not core.master_player:isMasterPlayer() then return end
+
+    local attack_work = sdk.to_managed_object(args[2])
+    if not attack_work then return end
+
+    -- 获取attack_work的唯一标识（内存地址）
+    local attack_work_id = attack_work:get_address()
+
+    -- 检查是否已经处理过这个attack_work（activate会持续调用）
+    if attack_active_effect_manager:is_attack_work_processed(attack_work_id) then
+        return
+    end
+
+    -- 获取attack_work的RSCController
+    local attack_rsc_ctrl = attack_work:get_RSCCtrl()
+    if not attack_rsc_ctrl then return end
+
+    -- 获取master_player的RSCController（通过组件获取方式更可靠）
+    local master_game_object = core.master_player:get_GameObject()
+    if not master_game_object then return end
+
+    local master_rsc_ctrl = master_game_object:call("getComponent(System.Type)", sdk.typeof("snow.RSCController"))
+    if not master_rsc_ctrl then return end
+
+    -- 比较地址来判断是否属于同一个RSCController
+    if attack_rsc_ctrl ~= master_rsc_ctrl then
+        return  -- 不是master_player的攻击判定，跳过
+    end
+
+    -- 获取武器类型
+    local weapon_type = core._wep_type
+
+    -- 触发攻击判定特效
+    attack_active_effect_manager:on_attack_activate(attack_work, weapon_type)
+end
+
+-- 钩子：攻击判定销毁（攻击判定结束时触发）
+---@param args table 钩子参数
+function effects.hook_pre_attack_work_destroy(args)
+    local attack_work = sdk.to_managed_object(args[2])
+    if not attack_work then return end
+
+    -- 回收攻击判定特效
+    attack_active_effect_manager:on_attack_destroy(attack_work)
 end
 
 -- ============================================================================
