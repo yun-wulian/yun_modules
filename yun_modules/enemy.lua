@@ -36,37 +36,39 @@ enemy.flinch_type = {
     MYSTERY_MAXIMUM_ACTIVITY_RELEASE = 28,  -- 神秘最大活动释放
 }
 
---- 给怪物设置硬直
+-- 备用硬直类型表（当主硬直类型不可用时使用）
+-- 顺序：推荐类型 20, 13, 9, 10，然后是 9-25 范围内的其他类型
+local FALLBACK_FLINCH_TYPES = {
+    20,  -- 部位破坏（明显硬直）
+    13,  -- 机关击退
+    9,   -- 闪光
+    10,  -- 音波
+    11,  -- 大型机关
+    12,  -- 大型怪物间伤害
+    14,  -- 高位部位
+    15,  -- 中型操控
+    16,  -- 中型机关
+    17,  -- 中型怪物间伤害
+    18,  -- 多部位
+    19,  -- 属性弱点
+    21,  -- 睡眠结束
+    22,  -- 体力耗尽
+    23,  -- 普通部位硬直
+    24,  -- 小型操控
+    25,  -- 小型机关
+}
+
+--- 内部函数：尝试应用硬直（不含备用逻辑）
 ---@param enemy_instance userdata 怪物实例对象
----@param flinch_type number 硬直类型（参考 enemy.flinch_type 枚举）
----@param options table|nil 可选参数表 {damage_angle=0.0, original_damage=0.0, action_no=0, timing=0}
+---@param flinch_type number 硬直类型
+---@param action_no number 动作编号
+---@param damage_attr number 伤害属性
+---@param timing number 执行时机
 ---@return boolean success 是否成功
 ---@return string|nil error_msg 错误信息（如果失败）
-function enemy.set_flinch(enemy_instance, flinch_type, options)
-    -- 参数检查：如果怪物实例为 nil，直接返回成功（不执行任何操作）
-    -- 这种情况通常发生在远程攻击（shell）时，避免对错误的怪物触发硬直
-    if not enemy_instance then
-        return true, nil
-    end
-
-    if type(flinch_type) ~= "number" then
-        return false, "硬直类型必须是数字"
-    end
-
-    -- 默认选项
-    local opts = options or {}
-    local action_no = opts.action_no or 0
-    local damage_attr = opts.damage_attr or 0
-    local timing = opts.timing or 0  -- 0=Immediately, 1=ThinkTop, 2=ActionEnd
-
-    -- 使用 pcall 捕获错误
+local function apply_flinch_internal(enemy_instance, flinch_type, action_no, damage_attr, timing)
     local success, error_msg = pcall(function()
-        -- 验证怪物实例有效性
-        if not sdk.is_managed_object(enemy_instance) then
-            error("怪物实例无效")
-        end
-
-        -- 获取类型定义并创建实例（推荐方式）
+        -- 获取类型定义并创建实例
         local type_def = sdk.find_type_definition("snow.enemy.EnemyDamageStockParam")
         if not type_def then
             error("无法找到 EnemyDamageStockParam 类型定义")
@@ -76,10 +78,6 @@ function enemy.set_flinch(enemy_instance, flinch_type, options)
         if not stock then
             error("创建伤害参数对象失败")
         end
-
-        -- 不设置任何字段，使用默认值
-        -- 经测试，在某些情况下（如远程攻击）设置字段会导致崩溃
-        -- 默认值应该已经满足需求
 
         -- 调用硬直方法
         enemy_instance:requestThinkInterrupt_Damage(
@@ -98,6 +96,69 @@ function enemy.set_flinch(enemy_instance, flinch_type, options)
     end
 
     return true, nil
+end
+
+--- 给怪物设置硬直（支持自动备用硬直）
+---@param enemy_instance userdata 怪物实例对象
+---@param flinch_type number 硬直类型（参考 enemy.flinch_type 枚举）
+---@param options table|nil 可选参数表 {damage_angle=0.0, original_damage=0.0, action_no=0, timing=0}
+---@return boolean success 是否成功
+---@return string|nil error_msg 错误信息（如果失败）
+function enemy.set_flinch(enemy_instance, flinch_type, options)
+    -- 参数检查：如果怪物实例为 nil，直接返回成功（不执行任何操作）
+    -- 这种情况通常发生在远程攻击（shell）时，避免对错误的怪物触发硬直
+    if not enemy_instance then
+        return true, nil
+    end
+
+    if type(flinch_type) ~= "number" then
+        return false, "硬直类型必须是数字"
+    end
+
+    -- 验证怪物实例有效性
+    if not sdk.is_managed_object(enemy_instance) then
+        return false, "怪物实例无效"
+    end
+
+    -- 默认选项
+    local opts = options or {}
+    local action_no = opts.action_no or 0
+    local damage_attr = opts.damage_attr or 0
+    local timing = opts.timing or 0  -- 0=Immediately, 1=ThinkTop, 2=ActionEnd
+
+    -- 检查原始硬直类型是否可用
+    local is_available = pcall(function()
+        return enemy_instance:isEnableDamageCategory(flinch_type, 0)
+    end)
+
+    if is_available then
+        local can_use = enemy_instance:isEnableDamageCategory(flinch_type, 0)
+        if can_use then
+            -- 原始硬直类型可用，直接应用
+            return apply_flinch_internal(enemy_instance, flinch_type, action_no, damage_attr, timing)
+        end
+    end
+
+    -- 原始硬直类型不可用，尝试备用类型
+    for _, fallback_type in ipairs(FALLBACK_FLINCH_TYPES) do
+        -- 跳过与原始类型相同的备用类型
+        if fallback_type ~= flinch_type then
+            local check_ok = pcall(function()
+                return enemy_instance:isEnableDamageCategory(fallback_type, 0)
+            end)
+
+            if check_ok then
+                local can_use_fallback = enemy_instance:isEnableDamageCategory(fallback_type, 0)
+                if can_use_fallback then
+                    -- 找到可用的备用硬直类型，应用它
+                    return apply_flinch_internal(enemy_instance, fallback_type, action_no, damage_attr, timing)
+                end
+            end
+        end
+    end
+
+    -- 所有备用类型都不可用
+    return false, "怪物不支持任何可用的硬直类型"
 end
 
 --- 便捷函数：触发击退硬直
