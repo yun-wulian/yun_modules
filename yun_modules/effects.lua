@@ -356,28 +356,51 @@ end
 -- 对外公开的特效 API
 -- ============================================================================
 
+-- 内部函数：发送特效同步网络包
+---@param container number 容器ID
+---@param efx number 特效ID
+local function send_effect_sync_packet(container, efx)
+    if not core.master_player then return end
+    local player_network = core.master_player:get_RefNetwork()
+    if player_network then
+        pcall(function()
+            player_network:sendSingleEffectCallPacket(container, efx)
+        end)
+    end
+end
+
 -- 在玩家位置生成特效（不返回实例）
 ---@param container number 容器ID
 ---@param efx number 特效ID
+---@param sync boolean|nil 是否同步给队友（可选，默认true）
 ---@return boolean 是否成功调用
-function effects.set_effect(container, efx)
+function effects.set_effect(container, efx, sync)
     if not core.master_player then return false end
     if not effects.is_effect_exists(container, efx) then return false end
     core.master_player:setItemEffect(container, efx)
+    -- 同步给队友（默认同步）
+    if sync ~= false then
+        send_effect_sync_packet(container, efx)
+    end
     return true
 end
 
 -- 在玩家位置生成特效（返回实例，用于后续释放）
 ---@param container number 容器ID
 ---@param efx number 特效ID
+---@param sync boolean|nil 是否同步给队友（可选，默认true）
 ---@return userdata|nil 特效实例，失败返回nil
-function effects.set_effect_with_instance(container, efx)
+function effects.set_effect_with_instance(container, efx, sync)
     if not core.master_player then return nil end
     if not effects.is_effect_exists(container, efx) then return nil end
     local success, instance = pcall(function()
         return core.master_player:setEffect(container, efx)
     end)
     if success and instance then
+        -- 同步给队友（默认同步）
+        if sync ~= false then
+            send_effect_sync_packet(container, efx)
+        end
         return instance
     end
     return nil
@@ -712,8 +735,8 @@ function AttackActiveEffectManager:on_attack_activate(attack_work, weapon_type)
             end
 
             if force_release then
-                -- 使用 setEffect 获取实例，以便后续回收
-                local instance = core.master_player:setEffect(rule.vfx[1], rule.vfx[2])
+                -- 使用公开 API 获取实例，以便后续回收（自动同步）
+                local instance = effects.set_effect_with_instance(rule.vfx[1], rule.vfx[2])
                 if instance then
                     table.insert(effect_data.effect_instances, {
                         instance = instance,
@@ -721,8 +744,8 @@ function AttackActiveEffectManager:on_attack_activate(attack_work, weapon_type)
                     })
                 end
             else
-                -- 不需要回收的特效
-                core.master_player:setItemEffect(rule.vfx[1], rule.vfx[2])
+                -- 不需要回收的特效，使用公开 API（自动同步）
+                effects.set_effect(rule.vfx[1], rule.vfx[2])
             end
         end
 
@@ -1182,7 +1205,7 @@ local EffectExecutor = {}
 -- 复用的Vector3f对象（用于命中特效计算，避免频繁创建）
 local reused_up_vector = Vector3f.new(0, 1, 0)
 
--- 在玩家位置生成特效
+-- 在玩家位置生成特效（内部使用，调用公开 API 以获得同步）
 ---@param container number 容器ID
 ---@param effect number 特效ID
 ---@param force_release boolean 是否需要强制释放
@@ -1192,18 +1215,14 @@ function EffectExecutor.set_effect(container, effect, force_release, context)
     if not effects.is_effect_exists(container, effect) then return end
 
     if force_release then
-        -- 需要强制释放的特效，使用 setEffect 获取实例
-        local success, instance = pcall(function()
-            return core.master_player:setEffect(container, effect)
-        end)
-        if success and instance then
+        -- 需要强制释放的特效，使用公开 API 获取实例
+        local instance = effects.set_effect_with_instance(container, effect)
+        if instance then
             context:register_effect_instance(instance)
         end
     else
-        -- 普通特效，使用 setItemEffect（无返回值）
-        pcall(function()
-            core.master_player:setItemEffect(container, effect)
-        end)
+        -- 普通特效，使用公开 API
+        effects.set_effect(container, effect)
     end
 end
 
@@ -1235,6 +1254,9 @@ function EffectExecutor.set_hit_effect(hit_position, container, effect)
         hit_position:cross(reused_up_vector):to_quat(),
         nil, nil, nil
     )
+
+    -- 同步给队友（使用内部函数直接发送）
+    send_effect_sync_packet(container, effect)
 end
 
 -- 执行特效规则
