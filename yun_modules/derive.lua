@@ -149,26 +149,60 @@ local input = require("yunwulian.yun_modules.input")
 local action = require("yunwulian.yun_modules.action")
 local player = require("yunwulian.yun_modules.player")
 
--- 派生表注册
+-- 派生表注册（使用字典结构支持动态移除）
 derive.deriveTable = {}
+derive._deriveTableNextId = 1
 
--- 钩子函数
+-- 钩子函数（使用字典结构支持动态移除）
 derive.hook_evaluate_post = {}
+derive._hookEvaluatePostNextId = 1
 
 -- 注册派生表
 ---@param derive_table table 派生表
+---@return number|nil 返回注册的索引ID，失败返回nil
 function derive.push_derive_table(derive_table)
     if type(derive_table) == "table" then
-        table.insert(derive.deriveTable, derive_table)
+        local id = derive._deriveTableNextId
+        derive._deriveTableNextId = derive._deriveTableNextId + 1
+        derive.deriveTable[id] = derive_table
+        return id
     end
+    return nil
+end
+
+-- 移除派生表
+---@param id number 注册时返回的索引ID
+---@return boolean 是否成功移除
+function derive.pop_derive_table(id)
+    if type(id) == "number" and derive.deriveTable[id] ~= nil then
+        derive.deriveTable[id] = nil
+        return true
+    end
+    return false
 end
 
 -- 添加按键判定函数
 ---@param func function 函数
+---@return number|nil 返回注册的索引ID，失败返回nil
 function derive.push_evaluate_post_functions(func)
     if type(func) == "function" then
-        table.insert(derive.hook_evaluate_post, func)
+        local id = derive._hookEvaluatePostNextId
+        derive._hookEvaluatePostNextId = derive._hookEvaluatePostNextId + 1
+        derive.hook_evaluate_post[id] = func
+        return id
     end
+    return nil
+end
+
+-- 移除按键判定函数
+---@param id number 注册时返回的索引ID
+---@return boolean 是否成功移除
+function derive.pop_evaluate_post_functions(id)
+    if type(id) == "number" and derive.hook_evaluate_post[id] ~= nil then
+        derive.hook_evaluate_post[id] = nil
+        return true
+    end
+    return false
 end
 
 -- ============================================================================
@@ -982,8 +1016,8 @@ function DeriveStateMachine:update()
         return
     end
 
-    -- 遍历所有派生表
-    for _, sub_derive_table in ipairs(self.derive_table) do
+    -- 遍历所有派生表（使用pairs支持字典结构）
+    for _, sub_derive_table in pairs(self.derive_table) do
         local success = self:process_derive_table(sub_derive_table)
 
         -- 如果成功执行派生，退出循环
@@ -1183,8 +1217,8 @@ function derive.hook_evaluate_post_command(retval, commandbase, commandarg)
         derive.set_derive_start_frame(commandbase:get_field("StartFrame"))
     end
 
-    -- 执行注册的钩子函数
-    for _, func in ipairs(derive.hook_evaluate_post) do
+    -- 执行注册的钩子函数（使用pairs支持字典结构）
+    for _, func in pairs(derive.hook_evaluate_post) do
         retval = func(retval, commandbase, commandarg)
     end
 

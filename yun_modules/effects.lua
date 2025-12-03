@@ -233,14 +233,32 @@ end
 -- ============================================================================
 
 -- 特效规则表 - 结构: { [weapon_type] = { [action_id] = { rules... } } }
+-- 使用字典结构支持动态移除
 effects.effectTable = {}
+effects._effectTableNextId = 1
 
 -- 注册特效表
 ---@param effect_table table 特效表
+---@return number|nil 返回注册的索引ID，失败返回nil
 function effects.push_effect_table(effect_table)
     if type(effect_table) == "table" then
-        table.insert(effects.effectTable, effect_table)
+        local id = effects._effectTableNextId
+        effects._effectTableNextId = effects._effectTableNextId + 1
+        effects.effectTable[id] = effect_table
+        return id
     end
+    return nil
+end
+
+-- 移除特效表
+---@param id number 注册时返回的索引ID
+---@return boolean 是否成功移除
+function effects.pop_effect_table(id)
+    if type(id) == "number" and effects.effectTable[id] ~= nil then
+        effects.effectTable[id] = nil
+        return true
+    end
+    return false
 end
 
 -- ============================================================================
@@ -425,7 +443,8 @@ end
 ---@param weapon_type number 武器类型
 ---@return table|nil 特效规则列表
 function AttackActiveEffectManager:find_attack_active_rules(weapon_type)
-    for _, sub_effect_table in ipairs(effects.effectTable) do
+    -- 使用pairs支持字典结构
+    for _, sub_effect_table in pairs(effects.effectTable) do
         if sub_effect_table[weapon_type] then
             local weapon_table = sub_effect_table[weapon_type]
             if weapon_table[effects.on_action_status.AttackActive] then
@@ -1265,8 +1284,8 @@ end
 ---@param motion_bank number 动作库ID
 ---@param current_frame number 当前帧数
 function EffectStateMachine:update(weapon_type, motion_id, motion_bank, current_frame)
-    -- 遍历所有特效表
-    for _, sub_effect_table in ipairs(self.effect_table) do
+    -- 遍历所有特效表（使用pairs支持字典结构）
+    for _, sub_effect_table in pairs(self.effect_table) do
         self:process_effect_table(sub_effect_table, weapon_type, motion_id, motion_bank, current_frame)
     end
 end
