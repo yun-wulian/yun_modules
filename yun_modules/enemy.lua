@@ -3,6 +3,55 @@
 
 local enemy = {}
 
+-- ============================================================================
+-- 网络同步状态
+-- ============================================================================
+-- 客机无法直接调用 requestThinkInterrupt_Damage，因此使用 stamina 伤害触发硬直
+-- 当客机调用 set_flinch 时，会设置一个标志，下次攻击时返回高 stamina 值
+
+local pending_flinch = false           -- 是否有待触发的硬直
+local stamina_damage_value = 100000    -- stamina 伤害固定值（足够触发硬直）
+local hook_installed = false           -- hook 是否已安装
+
+-- 检查是否为主机
+local function is_host()
+    local session_manager = sdk.get_managed_singleton("snow.network.session.MultiSessionManager")
+    if not session_manager then
+        return true  -- 单机模式视为主机
+    end
+
+    -- 检查是否在任务会话中
+    local is_in_session = session_manager:call("getIsInSession", 1)  -- 1 = Quest session
+    if not is_in_session then
+        return true  -- 不在会话中视为主机
+    end
+
+    return session_manager:call("getIsHost", 1)  -- 1 = Quest session
+end
+
+-- 安装 stamina hook（仅在需要时安装一次）
+local function ensure_hook_installed()
+    if hook_installed then return end
+
+    local method = sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("getAdjustStaminaAttack")
+    if not method then
+        return
+    end
+
+    sdk.hook(method,
+        function(_) end,
+        function(retval)
+            if pending_flinch then
+                pending_flinch = false  -- 消耗标志
+                return sdk.float_to_ptr(stamina_damage_value)
+            end
+            return retval
+        end
+    )
+
+    hook_installed = true
+end
+
 -- 硬直类型枚举
 enemy.flinch_type = {
     MARIONETTE_FRIENDLY_FIRE = 0,   -- 操控友伤
@@ -96,10 +145,10 @@ local function apply_flinch_internal(enemy_instance, flinch_type, action_no, dam
     return true, nil
 end
 
---- 给怪物设置硬直（支持自动备用硬直）
+--- 给怪物设置硬直（支持自动备用硬直和联机同步）
 ---@param enemy_instance userdata 怪物实例对象
 ---@param flinch_type number 硬直类型（参考 enemy.flinch_type 枚举）
----@param options table|nil 可选参数表 {damage_angle=0.0, original_damage=0.0, action_no=0, timing=0}
+---@param options table|nil 可选参数表 {damage_angle=0.0, original_damage=0.0, action_no=0, timing=0, force_local=false}
 ---@return boolean success 是否成功
 ---@return string|nil error_msg 错误信息（如果失败）
 function enemy.set_flinch(enemy_instance, flinch_type, options)
@@ -123,6 +172,22 @@ function enemy.set_flinch(enemy_instance, flinch_type, options)
     local action_no = opts.action_no or 0
     local damage_attr = opts.damage_attr or 0
     local timing = opts.timing or 0  -- 0=Immediately, 1=ThinkTop, 2=ActionEnd
+    local force_local = opts.force_local or false  -- 强制使用本地方式（不使用网络同步）
+
+    -- ========================================================================
+    -- 联机同步处理
+    -- ========================================================================
+    -- 如果是客机且未强制本地，使用 stamina 伤害方式触发硬直
+    -- 这样主机会计算伤害并广播硬直给所有玩家
+    if not force_local and not is_host() then
+        ensure_hook_installed()
+        pending_flinch = true
+        return true, "客机模式：下次攻击将触发硬直"
+    end
+
+    -- ========================================================================
+    -- 主机/单机模式：直接调用硬直
+    -- ========================================================================
 
     -- 检查原始硬直类型是否可用
     local is_available = pcall(function()
@@ -182,5 +247,22 @@ end
 function enemy.trigger_parts_loss(enemy_instance)
     return enemy.set_flinch(enemy_instance, enemy.flinch_type.PARTS_LOSS)
 end
+
+-- ============================================================================
+-- 网络同步说明
+-- ============================================================================
+-- 主机模式：直接调用 requestThinkInterrupt_Damage，可精确控制硬直类型
+-- 客机模式：通过增加 stamina 伤害触发硬直，硬直类型为后仰硬直
+--
+-- 技术细节：
+-- - MHR 是 P2P 架构，怪物 AI 只在主机运算
+-- - 客机无法直接发送怪物网络包（IsSendEnablePacket 为 false）
+-- - 但客机的攻击参数（如 stamina 伤害）会同步到主机
+-- - 主机根据同步的参数计算伤害和硬直，然后广播给所有玩家
+--
+-- 限制：
+-- - 客机模式下硬直类型固定为后仰硬直，无法指定具体类型
+-- - 客机模式需要攻击怪物才能触发硬直（不能凭空触发）
+-- - 如需强制使用本地方式，设置 options.force_local = true
 
 return enemy

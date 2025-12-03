@@ -24,23 +24,6 @@ local test_duration = 0.5               -- 测试持续时间
 local test_reverse_duration = 0.9       -- 测试恢复时间
 local test_use_reverse = true           -- 是否使用reverse阶段
 
--- 测试日志缓冲区
-local test_log_buffer = {}
-local test_log_max_lines = 10
-
--- 添加测试日志
-local function add_test_log(message, is_error)
-    table.insert(test_log_buffer, {
-        msg = message,
-        is_error = is_error or false,
-        time = os.clock()
-    })
-    -- 限制日志数量
-    if #test_log_buffer > test_log_max_lines then
-        table.remove(test_log_buffer, 1)
-    end
-end
-
 -- 绘制调试UI
 function ui.draw_debug_ui()
     if imgui.tree_node("YUN_DEBUGS") then
