@@ -369,7 +369,8 @@ local function send_effect_sync_packet(container, efx)
     end
 end
 
--- 在玩家位置生成特效（不返回实例）
+-- 在玩家位置生成特效（不返回实例，一次性特效）
+-- 此方法生成的特效会自动消失，无需手动释放，默认同步给队友
 ---@param container number 容器ID
 ---@param efx number 特效ID
 ---@param sync boolean|nil 是否同步给队友（可选，默认true）
@@ -386,9 +387,10 @@ function effects.set_effect(container, efx, sync)
 end
 
 -- 在玩家位置生成特效（返回实例，用于后续释放）
+-- 注意：此方法默认不同步给队友，因为释放特效无法同步，会导致队友端特效累积
 ---@param container number 容器ID
 ---@param efx number 特效ID
----@param sync boolean|nil 是否同步给队友（可选，默认true）
+---@param sync boolean|nil 是否同步给队友（可选，默认false，因为释放无法同步）
 ---@return userdata|nil 特效实例，失败返回nil
 function effects.set_effect_with_instance(container, efx, sync)
     if not core.master_player then return nil end
@@ -397,8 +399,9 @@ function effects.set_effect_with_instance(container, efx, sync)
         return core.master_player:setEffect(container, efx)
     end)
     if success and instance then
-        -- 同步给队友（默认同步）
-        if sync ~= false then
+        -- 默认不同步（因为释放无法同步，会导致队友端累积）
+        -- 只有明确指定 sync=true 时才同步
+        if sync == true then
             send_effect_sync_packet(container, efx)
         end
         return instance
