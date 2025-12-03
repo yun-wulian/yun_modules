@@ -90,8 +90,14 @@ yun_modules.should_draw_ui = state.should_draw_ui
 
 -- 导出特效相关函数
 yun_modules.set_effect = effects.set_effect
+yun_modules.set_effect_with_instance = effects.set_effect_with_instance
 yun_modules.set_camera_vibration = effects.set_camera_vibration
 yun_modules.set_pad_vibration = effects.set_pad_vibration
+
+-- 导出特效验证接口
+yun_modules.is_effect_exists = effects.is_effect_exists
+yun_modules.get_effect_id_list = effects.get_effect_id_list
+yun_modules.clear_effect_validity_cache = effects.clear_validity_cache
 
 -- 导出特效系统（状态机）
 yun_modules.effectTable = effects.effectTable
@@ -140,6 +146,9 @@ hooks.enable()
 
 -- 注册动作改变回调
 action.on_action_change(derive.on_action_change)
+
+-- 注册任务状态改变回调（清除特效缓存）
+state.on_quest_change(effects.clear_validity_cache)
 
 -- 主循环
 re.on_pre_application_entry("UpdateScene", function()

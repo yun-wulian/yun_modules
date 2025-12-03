@@ -262,15 +262,125 @@ function effects.pop_effect_table(id)
 end
 
 -- ============================================================================
+-- 特效验证接口
+-- ============================================================================
+
+-- 特效存在性缓存（避免重复查询）
+-- 结构: { [containerID] = { [elementID] = true/false, ... }, ... }
+local _effect_validity_cache = {}
+
+-- 清除特效存在性缓存（在任务切换等场景调用）
+function effects.clear_validity_cache()
+    _effect_validity_cache = {}
+end
+
+-- 检查特效ID是否存在于当前玩家的EPV实例中
+---@param container number 容器ID（EPV实例ID）
+---@param efx number 特效ID（element ID）
+---@return boolean 特效是否存在
+function effects.is_effect_exists(container, efx)
+    if not core.master_player then return false end
+
+    -- 检查缓存
+    if _effect_validity_cache[container] then
+        local cached = _effect_validity_cache[container][efx]
+        if cached ~= nil then
+            return cached
+        end
+    end
+
+    local eff_manager = core.master_player:getObjectEffectManager()
+    if not eff_manager then return false end
+
+    -- StandardDataMap: Dictionary<uint, EPVStandardData>
+    local standard_data_map = eff_manager:get_field("StandardDataMap")
+    if not standard_data_map then return false end
+
+    -- 检查该 containerID 对应的 EPV 是否存在
+    local success, standard_data = pcall(function()
+        return standard_data_map:get_Item(container)
+    end)
+    if not success or not standard_data then
+        -- 缓存不存在的容器
+        if not _effect_validity_cache[container] then
+            _effect_validity_cache[container] = {}
+        end
+        _effect_validity_cache[container][efx] = false
+        return false
+    end
+
+    -- 检查该 EPV 中是否有指定的 element ID
+    local element = standard_data:getElementFromID(efx)
+    local exists = element ~= nil
+
+    -- 缓存结果
+    if not _effect_validity_cache[container] then
+        _effect_validity_cache[container] = {}
+    end
+    _effect_validity_cache[container][efx] = exists
+
+    return exists
+end
+
+-- 获取指定容器的所有有效特效ID列表
+---@param container number 容器ID
+---@return table|nil 特效ID列表，失败返回nil
+function effects.get_effect_id_list(container)
+    if not core.master_player then return nil end
+
+    local eff_manager = core.master_player:getObjectEffectManager()
+    if not eff_manager then return nil end
+
+    local standard_data_map = eff_manager:get_field("StandardDataMap")
+    if not standard_data_map then return nil end
+
+    local success, standard_data = pcall(function()
+        return standard_data_map:get_Item(container)
+    end)
+    if not success or not standard_data then return nil end
+
+    local id_list = standard_data:getElementIDList()
+    if not id_list then return nil end
+
+    -- 转换为 Lua 表
+    local result = {}
+    local count = id_list:get_Count()
+    for i = 0, count - 1 do
+        table.insert(result, id_list:get_Item(i))
+    end
+
+    return result
+end
+
+-- ============================================================================
 -- 对外公开的特效 API
 -- ============================================================================
 
--- 在玩家位置生成特效
+-- 在玩家位置生成特效（不返回实例）
 ---@param container number 容器ID
 ---@param efx number 特效ID
+---@return boolean 是否成功调用
 function effects.set_effect(container, efx)
-    if not core.master_player then return end
+    if not core.master_player then return false end
+    if not effects.is_effect_exists(container, efx) then return false end
     core.master_player:setItemEffect(container, efx)
+    return true
+end
+
+-- 在玩家位置生成特效（返回实例，用于后续释放）
+---@param container number 容器ID
+---@param efx number 特效ID
+---@return userdata|nil 特效实例，失败返回nil
+function effects.set_effect_with_instance(container, efx)
+    if not core.master_player then return nil end
+    if not effects.is_effect_exists(container, efx) then return nil end
+    local success, instance = pcall(function()
+        return core.master_player:setEffect(container, efx)
+    end)
+    if success and instance then
+        return instance
+    end
+    return nil
 end
 
 -- 触发相机震动
@@ -1079,6 +1189,7 @@ local reused_up_vector = Vector3f.new(0, 1, 0)
 ---@param context table 特效上下文
 function EffectExecutor.set_effect(container, effect, force_release, context)
     if not core.master_player then return end
+    if not effects.is_effect_exists(container, effect) then return end
 
     if force_release then
         -- 需要强制释放的特效，使用 setEffect 获取实例
@@ -1104,17 +1215,20 @@ function EffectExecutor.set_hit_effect(hit_position, container, effect)
     if not core.master_player then
         return
     end
+    if not effects.is_effect_exists(container, effect) then
+        return
+    end
 
     local effectContainer = sdk.create_instance("via.effect.script.EffectID", true):add_ref()
     effectContainer.ContainerID = container
     effectContainer.ElementID = effect
 
-    local effManager = core.master_player:getObjectEffectManager()
-    if not effManager then
+    local eff_manager = core.master_player:getObjectEffectManager()
+    if not eff_manager then
         return
     end
 
-    effManager:call(
+    eff_manager:call(
         "requestEffect(via.effect.script.EffectID, via.vec3, via.Quaternion, via.GameObject, System.String, via.effect.script.EffectManager.WwiseTriggerInfo)",
         effectContainer,
         hit_position,
