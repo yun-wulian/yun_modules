@@ -844,9 +844,6 @@ function CameraEffectManager.new()
     -- 复用的Vector3f对象（优化：避免每帧创建新对象）
     self.reused_vector = Vector3f.new(0, 0, 0)
 
-    -- 上一帧的FOV累积偏移量（用于增量更新）
-    self.last_fov_offset = 0
-
     -- 计算结果缓存（在update_logic中计算，在apply_to_camera中应用）
     self.computed_fov_offset = 0
     self.computed_distance_offset = 0
@@ -1035,12 +1032,10 @@ function CameraEffectManager:apply_to_camera()
         return
     end
 
-    -- 应用FOV增量（只在偏移量变化时写入）
-    if self.computed_fov_offset ~= self.last_fov_offset then
+    -- 每帧都应用FOV偏移（游戏每帧都会重置FOV到基础值）
+    if self.computed_fov_offset ~= 0 then
         local current_fov = camera:get_FOV()
-        local delta = self.computed_fov_offset - self.last_fov_offset
-        camera:set_FOV(current_fov + delta)
-        self.last_fov_offset = self.computed_fov_offset
+        camera:set_FOV(current_fov + self.computed_fov_offset)
     end
 
     -- 应用距离偏移
@@ -1060,17 +1055,7 @@ end
 -- 清除所有效果
 function CameraEffectManager:clear_all()
     self.active_effects = {}
-
-    -- 如果有累积的FOV偏移，需要恢复（应用负的偏移量）
-    if self.last_fov_offset ~= 0 then
-        local camera = sdk.get_primary_camera()
-        if camera then
-            local current_fov = camera:get_FOV()
-            camera:set_FOV(current_fov - self.last_fov_offset)
-        end
-        self.last_fov_offset = 0
-    end
-
+    -- FOV无需手动恢复，游戏每帧都会重置到基础值
     self.current_radial_blur = nil
 end
 

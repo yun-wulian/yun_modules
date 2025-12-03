@@ -114,11 +114,11 @@ function ui.draw_debug_ui()
             imgui.spacing()
 
             local changed
-            changed, test_fov_offset = imgui.slider_float("FOV偏移", test_fov_offset, -50, 50)
-            changed, test_distance_offset = imgui.slider_float("距离偏移", test_distance_offset, 0, 10)
-            changed, test_radial_blur = imgui.slider_float("径向模糊", test_radial_blur, 0, 15)
-            changed, test_duration = imgui.slider_float("Forward持续时间", test_duration, 0.1, 2)
-            changed, test_reverse_duration = imgui.slider_float("Reverse持续时间", test_reverse_duration, 0.1, 2)
+            changed, test_fov_offset = imgui.slider_float("FOV偏移", test_fov_offset, -50, 100)
+            changed, test_distance_offset = imgui.slider_float("距离偏移", test_distance_offset, -50, 50)
+            changed, test_radial_blur = imgui.slider_float("径向模糊", test_radial_blur, 0, 50)
+            changed, test_duration = imgui.slider_float("Forward持续时间", test_duration, 0.1, 10)
+            changed, test_reverse_duration = imgui.slider_float("Reverse持续时间", test_reverse_duration, 0.1, 10)
             changed, test_use_reverse = imgui.checkbox("启用Reverse阶段", test_use_reverse)
 
             imgui.spacing()
