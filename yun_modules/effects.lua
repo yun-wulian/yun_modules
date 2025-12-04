@@ -376,9 +376,9 @@ end
 ---@param sync boolean|nil 是否同步给队友（可选，默认true）
 ---@return boolean 是否成功调用
 function effects.set_effect(container, efx, sync)
-    if not core.master_player then return false end
+    if not core.master_player or not core.master_player:isMasterPlayer() then return false end
     if not effects.is_effect_exists(container, efx) then return false end
-    core.master_player:setItemEffect(container, efx)
+    pcall(core.master_player:setItemEffect(container, efx))
     -- 同步给队友（默认同步）
     if sync ~= false then
         send_effect_sync_packet(container, efx)
