@@ -962,15 +962,50 @@ function CameraEffectManager:update_logic()
                 total_radial_blur = total_radial_blur + effect.radial_blur_current
             end
 
-            -- 检查是否完成forward阶段
+            -- 检查是否完成 forward 阶段
             if progress >= 1.0 then
-                -- 始终进入reverse阶段（平滑恢复）
-                effect.phase = "reverse"
-                effect.reverse_start_time = current_time
-                -- 记录峰值偏移量
+                -- 记录峰值偏移量（forward 结束时的值）
                 effect.fov_peak_offset = config.fov_offset
                 effect.distance_offset_peak = effect.distance_offset_current
                 effect.radial_blur_peak = effect.radial_blur_current
+
+                -- 可选保持阶段：在进入 reverse 之前保持效果不变
+                local keep_duration = config.keep_duration or 0
+                if keep_duration > 0 then
+                    effect.phase = "keep"
+                    effect.keep_start_time = current_time
+                else
+                    effect.phase = "reverse"
+                    effect.reverse_start_time = current_time
+                end
+            end
+
+        -- ===== Keep 阶段（可选）=====
+        elseif effect.phase == "keep" then
+            local keep_duration = config.keep_duration or 0
+            local elapsed_time = current_time - (effect.keep_start_time or current_time)
+
+            -- 在保持阶段使用 forward 结束时的峰值
+            if config.fov_offset then
+                local current_offset = effect.fov_peak_offset or config.fov_offset
+                effect.fov_current_offset = current_offset
+                total_fov_offset = total_fov_offset + current_offset
+            end
+
+            if config.distance_offset then
+                effect.distance_offset_current = effect.distance_offset_peak or effect.distance_offset_current
+                total_distance_offset = total_distance_offset + effect.distance_offset_current
+            end
+
+            if config.radial_blur then
+                effect.radial_blur_current = effect.radial_blur_peak or effect.radial_blur_current
+                total_radial_blur = total_radial_blur + effect.radial_blur_current
+            end
+
+            -- 保持时间结束后，进入 reverse 阶段
+            if keep_duration <= 0 or elapsed_time >= keep_duration then
+                effect.phase = "reverse"
+                effect.reverse_start_time = current_time
             end
 
         -- ===== Reverse 阶段 =====
