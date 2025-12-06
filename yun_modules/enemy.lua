@@ -56,7 +56,7 @@ end
 enemy.flinch_type = {
     MARIONETTE_FRIENDLY_FIRE = 0,   -- 操控友伤
     MARIONETTE_START = 1,            -- 操控开始
-    PARTS_LOSS = 2,                  -- 部位丢失（超强硬直）
+    PARTS_LOSS = 2,                  -- 断尾
     FALL_TRAP = 3,                   -- 落穴陷阱
     SHOCK_TRAP = 4,                  -- 麻痹陷阱
     PARALYZE = 5,                    -- 麻痹
