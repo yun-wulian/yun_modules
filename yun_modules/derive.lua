@@ -22,9 +22,9 @@
 --     -- 输入设置（可选）
 --     isHolding = false,             -- 是否需要按住按键（可选，默认 false）
 --     holdingTime = 0.5,             -- 按住时长（秒）（可选，配合 isHolding 使用）
---     tarLstickDir = 1,              -- 摇杆方向限制（可选，四个方向；-1 表示任意方向）
+--     tarLstickDir = 1,              -- 摇杆方向限制（可选，四个方向）
 --     isByPlayerDir = true,          -- 摇杆方向是否基于玩家朝向（可选，默认 true）
---     needIgnoreOriginalKey = 1,     -- 需要屏蔽的原始按键命令（可选，支持单值或表如 {1, 2, 3}）
+--     needIgnoreOriginalKey = 1,     -- 需要屏蔽的原始按键命令（可选）
 --
 --     -- 翔虫设置（可选）
 --     useWire = {1, 5.0},            -- 使用翔虫 {消耗数量, 冷却时间（秒）}（可选）
@@ -523,11 +523,6 @@ function ConditionChecker.check_lstick_direction(rule)
         return true
     end
 
-    -- -1 表示任意方向：只要推摇杆就有效
-    if tarLstickDir == -1 then
-        return input.is_push_lstick()
-    end
-
     local isByPlayerDir = rule.isByPlayerDir
 
     -- 默认或显式设置为 true：基于玩家方向
@@ -862,31 +857,23 @@ function DeriveRuleProcessor.process(rule, context, wrappered_id)
     end
 
     -- 9. 设置需要忽略的原始按键（所有条件都满足，准备接收输入）
-    -- 注意：预收集逻辑已移至 process_derive_table，这里保留兼容性处理
     -- 只对普通派生（需要按键输入）进行处理
     if derive_type == DeriveType.NORMAL and rule.needIgnoreOriginalKey ~= nil then
         if not context.ignore_keys[wrappered_id] then
             context.ignore_keys[wrappered_id] = {}
         end
 
-        -- 支持表形式和单值形式
-        local keys_to_add = type(rule.needIgnoreOriginalKey) == "table"
-            and rule.needIgnoreOriginalKey
-            or { rule.needIgnoreOriginalKey }
-
-        for _, key in ipairs(keys_to_add) do
-            -- 检查是否已经添加过，避免重复
-            local already_exists = false
-            for _, existing_key in ipairs(context.ignore_keys[wrappered_id]) do
-                if existing_key == key then
-                    already_exists = true
-                    break
-                end
+        -- 检查是否已经添加过，避免重复
+        local already_exists = false
+        for _, key in ipairs(context.ignore_keys[wrappered_id]) do
+            if key == rule.needIgnoreOriginalKey then
+                already_exists = true
+                break
             end
+        end
 
-            if not already_exists then
-                table.insert(context.ignore_keys[wrappered_id], key)
-            end
+        if not already_exists then
+            table.insert(context.ignore_keys[wrappered_id], rule.needIgnoreOriginalKey)
         end
     end
 
@@ -994,40 +981,6 @@ function DeriveStateMachine:find_action_table(sub_derive_table)
     return nil, nil, nil
 end
 
--- 预收集动作表中所有规则的 needIgnoreOriginalKey
----@param action_table table 动作表
----@param context table 派生上下文
----@param wrapped_id number 包装ID
-local function pre_collect_ignore_keys(action_table, context, wrapped_id)
-    if not context.ignore_keys[wrapped_id] then
-        context.ignore_keys[wrapped_id] = {}
-    end
-
-    for _, rule in ipairs(action_table) do
-        if rule.needIgnoreOriginalKey ~= nil then
-            -- 支持表形式和单值形式
-            local keys_to_add = type(rule.needIgnoreOriginalKey) == "table"
-                and rule.needIgnoreOriginalKey
-                or { rule.needIgnoreOriginalKey }
-
-            for _, key in ipairs(keys_to_add) do
-                -- 检查是否已经添加过，避免重复
-                local already_exists = false
-                for _, existing_key in ipairs(context.ignore_keys[wrapped_id]) do
-                    if existing_key == key then
-                        already_exists = true
-                        break
-                    end
-                end
-
-                if not already_exists then
-                    table.insert(context.ignore_keys[wrapped_id], key)
-                end
-            end
-        end
-    end
-end
-
 -- 处理单个派生表
 ---@param sub_derive_table table 子派生表
 ---@return boolean 是否成功执行派生
@@ -1042,9 +995,6 @@ function DeriveStateMachine:process_derive_table(sub_derive_table)
     -- 更新上下文状态
     self.context.wrappered_id = wrapped_id
     self.context.this_is_by_action_id = is_by_action_id
-
-    -- 预收集所有规则的 needIgnoreOriginalKey（在条件检查之前）
-    pre_collect_ignore_keys(action_table, self.context, wrapped_id)
 
     -- 遍历所有派生规则（直接调用静态函数，零对象创建开销）
     for _, rule in ipairs(action_table) do
@@ -1145,8 +1095,6 @@ function derive.on_action_change()
     derive_context.executed_special_derives = {} -- 清除特殊派生执行记录
     derive_context.hit_success = -1 -- 清除命中标志
     derive_context.counter_success = false -- 清除反击标志
-    derive_context.ignore_keys = {} -- 清除忽略按键，避免累积影响后续派生
-    derive_context.derive_atk_data = {} -- 清除攻击倍率数据，避免未命中时跨动作累积
 end
 
 -- 获取派生攻击数据（用于钩子和调试）
