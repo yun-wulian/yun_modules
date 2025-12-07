@@ -339,6 +339,7 @@ function DeriveContext.new()
 
     -- 派生数据
     self.derive_atk_data = {}
+    self.derive_atk_data_pending = false  -- 标记是否刚设置，派生后第一次动作改变不清除
     self.need_speed_change = {}
     self.ignore_keys = {}
 
@@ -1014,24 +1015,35 @@ end
 ---@param rule table 派生规则
 ---@param context table 派生上下文
 function DeriveExecutor.apply_attack_multipliers(rule, context)
+    local has_mult = false
+
     -- 攻击倍率
     if rule.atkMult ~= nil then
         context.derive_atk_data.atkMult = utils.deepCopy(rule.atkMult)
+        has_mult = true
     end
 
     -- 属性倍率
     if rule.eleMult ~= nil then
         context.derive_atk_data.eleMult = utils.deepCopy(rule.eleMult)
+        has_mult = true
     end
 
     -- 眩晕倍率
     if rule.stunMult ~= nil then
         context.derive_atk_data.stunMult = utils.deepCopy(rule.stunMult)
+        has_mult = true
     end
 
     -- 耐力倍率
     if rule.staMult ~= nil then
         context.derive_atk_data.staMult = utils.deepCopy(rule.staMult)
+        has_mult = true
+    end
+
+    -- 标记为待处理，派生后的第一次动作改变不清除
+    if has_mult then
+        context.derive_atk_data_pending = true
     end
 end
 
@@ -1484,7 +1496,15 @@ function derive.on_action_change()
     derive_context:clear_pre_input()
     derive_context:clear_delay_pending()
     derive_context.ignore_keys = {} -- 清除忽略的按键
-    derive_context.derive_atk_data = {} -- 清除派生攻击数据，防止跨动作累积
+
+    -- 派生攻击数据清除逻辑：
+    -- 如果是刚派生设置的（pending=true），第一次动作改变不清除，只取消标志
+    -- 如果不是刚设置的（pending=false），清除数据
+    if derive_context.derive_atk_data_pending then
+        derive_context.derive_atk_data_pending = false
+    else
+        derive_context.derive_atk_data = {}
+    end
 
     -- 清理速度状态：恢复原始速度并重置状态标志
     -- 注意：不清空 need_speed_change，因为派生后的速度配置需要在新动作中生效
@@ -1666,25 +1686,15 @@ function derive.hook_pre_after_calc_damage(hitInfo)
     local dmgOwnerType = damageData:get_OwnerType()
 
     if dmgOwnerType == 2 then
-        -- 处理命中信息
+        -- 处理命中信息（用于命中派生）
         local need_hit_info = derive.get_need_hit_info()
         if need_hit_info and next(need_hit_info) ~= nil then
             if need_hit_info[1] == core._action_id and need_hit_info[2] <= core._derive_start_frame then
                 derive.set_hit_success(core._action_frame)
             end
         end
-
-        -- 处理派生攻击数据持续时间
-        local derive_atk_data = derive.get_derive_atk_data()
-        if derive_atk_data and next(derive_atk_data) ~= nil then
-            for key, subtable in pairs(derive_atk_data) do
-                if subtable and subtable[2] and subtable[2] > 1 then
-                    subtable[2] = subtable[2] - 1
-                else
-                    derive_atk_data[key] = nil
-                end
-            end
-        end
+        -- 注意：派生攻击数据（atkMult等）的次数消耗已移至各自的钩子函数中
+        -- 在应用倍率时立即消耗，而不是等到命中时，避免没命中时倍率保留/叠加的问题
     end
 end
 
@@ -1703,6 +1713,12 @@ function derive.hook_post_calc_total_attack(retval)
     local derive_atk_data = derive.get_derive_atk_data()
     if derive_atk_data and derive_atk_data["atkMult"] ~= nil then
         core.player_data:set_field("_Attack", core.player_data:get_field("_Attack") * derive_atk_data["atkMult"][1])
+        -- 应用后立即消耗次数，防止重复应用
+        if derive_atk_data["atkMult"][2] > 1 then
+            derive_atk_data["atkMult"][2] = derive_atk_data["atkMult"][2] - 1
+        else
+            derive_atk_data["atkMult"] = nil
+        end
     end
 
     return retval
@@ -1715,7 +1731,14 @@ function derive.hook_post_element_sharpness_adjust(retval)
     local derive_atk_data = derive.get_derive_atk_data()
     if derive_atk_data and derive_atk_data["eleMult"] ~= nil then
         local eleValue = sdk.to_float(retval)
-        return sdk.float_to_ptr(eleValue * derive_atk_data["eleMult"][1])
+        local result = sdk.float_to_ptr(eleValue * derive_atk_data["eleMult"][1])
+        -- 应用后立即消耗次数，防止重复应用
+        if derive_atk_data["eleMult"][2] > 1 then
+            derive_atk_data["eleMult"][2] = derive_atk_data["eleMult"][2] - 1
+        else
+            derive_atk_data["eleMult"] = nil
+        end
+        return result
     end
     return retval
 end
@@ -1726,8 +1749,15 @@ end
 function derive.hook_post_adjust_total_stun_attack(retval)
     local derive_atk_data = derive.get_derive_atk_data()
     if derive_atk_data and derive_atk_data["stunMult"] ~= nil then
-        local stunMult = sdk.to_float(retval)
-        return sdk.float_to_ptr(stunMult * derive_atk_data["stunMult"][1])
+        local stunValue = sdk.to_float(retval)
+        local result = sdk.float_to_ptr(stunValue * derive_atk_data["stunMult"][1])
+        -- 应用后立即消耗次数，防止重复应用
+        if derive_atk_data["stunMult"][2] > 1 then
+            derive_atk_data["stunMult"][2] = derive_atk_data["stunMult"][2] - 1
+        else
+            derive_atk_data["stunMult"] = nil
+        end
+        return result
     end
     return retval
 end
@@ -1738,8 +1768,15 @@ end
 function derive.hook_post_adjust_total_stamina_attack(retval)
     local derive_atk_data = derive.get_derive_atk_data()
     if derive_atk_data and derive_atk_data["staMult"] ~= nil then
-        local staMult = sdk.to_float(retval)
-        return sdk.float_to_ptr(staMult * derive_atk_data["staMult"][1])
+        local staValue = sdk.to_float(retval)
+        local result = sdk.float_to_ptr(staValue * derive_atk_data["staMult"][1])
+        -- 应用后立即消耗次数，防止重复应用
+        if derive_atk_data["staMult"][2] > 1 then
+            derive_atk_data["staMult"][2] = derive_atk_data["staMult"][2] - 1
+        else
+            derive_atk_data["staMult"] = nil
+        end
+        return result
     end
     return retval
 end
