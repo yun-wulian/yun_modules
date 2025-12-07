@@ -671,11 +671,11 @@ function AttackActiveEffectManager:check_rule_conditions(rule, current_frame)
     if rule.frame ~= nil then
         local frame = rule.frame
         if type(frame) == "table" then
-            if current_frame < frame[1] or current_frame > frame[2] then
+            if current_frame < (frame[1] + 0.0) or current_frame > (frame[2] + 0.0) then  -- 转换为浮点数
                 return false
             end
         else
-            if current_frame < frame then
+            if current_frame < (frame + 0.0) then  -- 转换为浮点数
                 return false
             end
         end
@@ -935,7 +935,7 @@ function CameraEffectManager:update_logic()
         -- ===== Forward 阶段 =====
         if effect.phase == "forward" then
             local elapsed_time = current_time - effect.start_time
-            local duration = config.duration or 1.0
+            local duration = (config.duration or 1.0) + 0.0  -- 转换为浮点数
             local progress = clamp01(elapsed_time / duration)
 
             -- 获取缓动函数
@@ -970,7 +970,7 @@ function CameraEffectManager:update_logic()
                 effect.radial_blur_peak = effect.radial_blur_current
 
                 -- 可选保持阶段：在进入 reverse 之前保持效果不变
-                local keep_duration = config.keep_duration or 0
+                local keep_duration = (config.keep_duration or 0) + 0.0  -- 转换为浮点数
                 if keep_duration > 0 then
                     effect.phase = "keep"
                     effect.keep_start_time = current_time
@@ -982,7 +982,7 @@ function CameraEffectManager:update_logic()
 
         -- ===== Keep 阶段（可选）=====
         elseif effect.phase == "keep" then
-            local keep_duration = config.keep_duration or 0
+            local keep_duration = (config.keep_duration or 0) + 0.0  -- 转换为浮点数
             local elapsed_time = current_time - (effect.keep_start_time or current_time)
 
             -- 在保持阶段使用 forward 结束时的峰值
@@ -1011,7 +1011,7 @@ function CameraEffectManager:update_logic()
         -- ===== Reverse 阶段 =====
         elseif effect.phase == "reverse" then
             local elapsed_time = current_time - effect.reverse_start_time
-            local duration = config.reverse_duration or config.duration or 1.0
+            local duration = (config.reverse_duration or config.duration or 1.0) + 0.0  -- 转换为浮点数
             local progress = clamp01(elapsed_time / duration)
 
             -- 获取reverse缓动函数
@@ -1183,11 +1183,11 @@ function ConditionChecker.check_frame(rule, current_frame)
 
     -- 帧数范围 {start, end}
     if type(frame) == "table" then
-        return current_frame >= frame[1] and current_frame <= frame[2]
+        return current_frame >= (frame[1] + 0.0) and current_frame <= (frame[2] + 0.0)  -- 转换为浮点数
     end
 
     -- 单一帧数
-    return current_frame >= frame
+    return current_frame >= (frame + 0.0)  -- 转换为浮点数
 end
 
 -- 检查所有前置条件
@@ -1308,7 +1308,7 @@ function EffectExecutor.execute(rule, context, motion_id, rule_index)
 
     -- 3. 如果开启了 hitTrigger，注册到命中触发缓存，不立即执行
     if hit_trigger then
-        local min_frame = type(rule.frame) == "table" and rule.frame[1] or (rule.frame or 0)
+        local min_frame = (type(rule.frame) == "table" and rule.frame[1] or (rule.frame or 0)) + 0.0  -- 转换为浮点数
         context:register_hit_trigger_rule(rule, min_frame)
         return  -- 不继续执行下面的效果，等待命中后再触发
     end
@@ -1316,7 +1316,7 @@ function EffectExecutor.execute(rule, context, motion_id, rule_index)
     -- 4. 注册相机效果（立即执行，除非 hitTrigger=true）
     local camera_effect = rule.cameraEffect
     if camera_effect then
-        local start_frame = type(rule.frame) == "table" and rule.frame[1] or (rule.frame or 0)
+        local start_frame = (type(rule.frame) == "table" and rule.frame[1] or (rule.frame or 0)) + 0.0  -- 转换为浮点数
         camera_effect_manager:register_effect(motion_id, rule_index, camera_effect, start_frame)
     end
 
@@ -1516,7 +1516,7 @@ function effects.on_enemy_damage(dmg_info, hit_pos, player_index, weapon_type)
     if cache.hit_table then
         -- 检查帧数范围
         if type(cache.frame) == "table" then
-            if current_frame > cache.frame[2] then
+            if current_frame > (cache.frame[2] + 0.0) then  -- 转换为浮点数
                 -- 超出范围，跳过命中特效
                 goto skip_hit_vfx
             end

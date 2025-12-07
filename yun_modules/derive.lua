@@ -433,7 +433,9 @@ function DeriveContext:update_speed()
         -- 查找当前帧对应的速度
         local target_speed, target_index = nil, nil
         for i, frameRange in ipairs(speed_table["frame"]) do
-            if utils.isFrameInRange(core._action_frame, frameRange) then
+            -- 转换帧数范围为浮点数
+            local startF, endF = frameRange[1] + 0.0, frameRange[2] + 0.0
+            if utils.isFrameInRange(core._action_frame, {startF, endF}) then
                 target_speed, target_index = speed_table["speed"][i], i
                 break
             end
@@ -569,10 +571,10 @@ end
 ---@return number 开始帧
 local function get_start_frame(rule)
     if rule.startFrame ~= nil then
-        return rule.startFrame
+        return rule.startFrame + 0.0  -- 转换为浮点数
     end
     -- 自动派生（无targetCmd）默认立即执行，普通派生使用游戏默认帧
-    return rule.targetCmd == nil and 0 or core._derive_start_frame
+    return rule.targetCmd == nil and 0.0 or core._derive_start_frame
 end
 
 -- 检查是否在输入窗口内
@@ -580,7 +582,7 @@ end
 ---@return boolean 是否在输入窗口内
 function ConditionChecker.check_input_window(rule)
     local startFrame = get_start_frame(rule)
-    local preFrame = rule.preFrame or CONST.DEFAULT_PRE_FRAME
+    local preFrame = (rule.preFrame or CONST.DEFAULT_PRE_FRAME) + 0.0  -- 转换为浮点数
 
     -- 在输入窗口内：当前帧 >= (开始帧 - 前置帧)
     return (startFrame - preFrame) <= core._action_frame
@@ -671,7 +673,7 @@ function ConditionChecker.check_hit_condition(rule, context)
     -- 检查命中延迟
     local hitLag = rule.hitLag
     if hitLag ~= nil then
-        if context.hit_success + hitLag >= core._action_frame then
+        if context.hit_success + (hitLag + 0.0) >= core._action_frame then  -- 转换为浮点数
             return false
         end
     end
@@ -724,7 +726,7 @@ function InputHandler.init_special_info(rule, context, wrappered_id)
 
     -- 设置命中信息
     if rule.hit ~= nil then
-        context.need_hit_info = { core._action_id, rule.startFrame or core._derive_start_frame }
+        context.need_hit_info = { core._action_id, (rule.startFrame or core._derive_start_frame) + 0.0 }  -- 转换为浮点数
     end
 
     -- 注意：needIgnoreOriginalKey 已移至条件检查通过后处理
@@ -825,7 +827,7 @@ end
 function DeriveExecutor.apply_jump_frame(rule, context, wrappered_id)
     local jmpFrame = rule.jmpFrame
     if jmpFrame ~= nil then
-        context.jmp_frame_cache = jmpFrame
+        context.jmp_frame_cache = jmpFrame + 0.0  -- 转换为浮点数，避免整数类型导致的问题
         context.jmp_frame_id = wrappered_id
     end
 end
@@ -1465,7 +1467,7 @@ function derive.hook_post_check_calc_damage(retval)
         local hit_counter_info = derive.get_hit_counter_info()
         if next(hit_counter_info) ~= nil then
             local frameInfo = hit_counter_info[3]
-            if frameInfo and core._action_frame >= frameInfo[1] and core._action_frame <= frameInfo[2] then
+            if frameInfo and core._action_frame >= (frameInfo[1] + 0.0) and core._action_frame <= (frameInfo[2] + 0.0) then  -- 转换为浮点数
                 if hit_counter_info[2] > 0 then
                     hit_counter_info[2] = hit_counter_info[2] - 1
                     if hit_counter_info[1] then
