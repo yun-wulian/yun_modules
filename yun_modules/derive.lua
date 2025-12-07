@@ -161,6 +161,15 @@ derive._deriveTableNextId = 1
 derive.hook_evaluate_post = {}
 derive._hookEvaluatePostNextId = 1
 
+-- ============================================================================
+-- 独立反击系统（Counter API）
+-- ============================================================================
+-- 反击注册表（使用字典结构支持动态移除）
+derive.counter_registry = {}
+derive._counterNextId = 1
+-- 当前动作的活跃反击状态
+derive._active_counters = {}
+
 -- 注册派生表
 ---@param derive_table table 派生表
 ---@return number|nil 返回注册的索引ID，失败返回nil
@@ -204,6 +213,90 @@ end
 function derive.pop_evaluate_post_functions(id)
     if type(id) == "number" and derive.hook_evaluate_post[id] ~= nil then
         derive.hook_evaluate_post[id] = nil
+        return true
+    end
+    return false
+end
+
+-- ============================================================================
+-- 独立反击接口（Counter API）
+-- ============================================================================
+--
+-- 方式1：一次性注册（需自己管理生命周期）
+-- local counter_id = derive.add_counter(100, 3, {10, 30}, function()
+--     log.info("成功抵挡伤害！")
+-- end)
+-- derive.remove_counter(counter_id) -- 移除
+--
+-- 方式2：轮询安全（可重复调用，推荐）
+-- derive.set_counter("my_mod_counter", 100, 3, {10, 30}, function()
+--     log.info("成功抵挡伤害！")
+-- end)
+-- derive.unset_counter("my_mod_counter") -- 移除
+--
+-- action_id 支持表格形式，匹配任意一个动作ID：
+-- derive.set_counter("my_counter", {100, 101, 102}, 3, {10, 30}, callback)
+--
+-- 在动作ID 100 的第 10-30 帧范围内，可以抵挡 3 次伤害
+-- 每次抵挡时会调用回调函数
+--
+-- ============================================================================
+
+--- 添加独立反击
+---@param action_id number|table 动作ID（单个或表格形式 {100, 101, 102}）
+---@param counter_count number 可抵挡次数
+---@param frame_range table {开始帧, 结束帧}
+---@param callback function|nil 每次抵挡时的回调函数（可选）
+---@return number 返回注册的ID，用于后续移除
+function derive.add_counter(action_id, counter_count, frame_range, callback)
+    local id = derive._counterNextId
+    derive._counterNextId = derive._counterNextId + 1
+    derive.counter_registry[id] = {
+        action_id = action_id,
+        max_count = counter_count,
+        frame_range = frame_range,
+        callback = callback
+    }
+    return id
+end
+
+--- 移除独立反击
+---@param id number 注册时返回的ID
+---@return boolean 是否成功移除
+function derive.remove_counter(id)
+    if type(id) == "number" and derive.counter_registry[id] ~= nil then
+        derive.counter_registry[id] = nil
+        -- 同时清除活跃状态
+        derive._active_counters[id] = nil
+        return true
+    end
+    return false
+end
+
+--- 设置独立反击（幂等/轮询安全版本）
+--- 使用 key 作为唯一标识，重复调用会更新而不是创建新的
+---@param key string 唯一标识符（如 "my_mod_counter_1"）
+---@param action_id number|table 动作ID（单个或表格形式 {100, 101, 102}）
+---@param counter_count number 可抵挡次数
+---@param frame_range table {开始帧, 结束帧}
+---@param callback function|nil 每次抵挡时的回调函数（可选）
+function derive.set_counter(key, action_id, counter_count, frame_range, callback)
+    -- 使用字符串key作为ID，直接覆盖
+    derive.counter_registry[key] = {
+        action_id = action_id,
+        max_count = counter_count,
+        frame_range = frame_range,
+        callback = callback
+    }
+end
+
+--- 移除独立反击（通过key）
+---@param key string 设置时使用的唯一标识符
+---@return boolean 是否成功移除
+function derive.unset_counter(key)
+    if type(key) == "string" and derive.counter_registry[key] ~= nil then
+        derive.counter_registry[key] = nil
+        derive._active_counters[key] = nil
         return true
     end
     return false
@@ -481,6 +574,80 @@ local derive_context = DeriveContext.new()
 
 -- 错误信息缓冲区
 local error_messages = {}
+
+-- ============================================================================
+-- 独立反击系统 - 内部函数
+-- ============================================================================
+
+--- 内部函数：检查动作ID是否匹配
+---@param config_action_id number|table 配置的动作ID（单个或表格）
+---@param current_action_id number 当前动作ID
+---@return boolean 是否匹配
+local function match_action_id(config_action_id, current_action_id)
+    if type(config_action_id) == "table" then
+        -- 表格形式：匹配任意一个
+        for _, aid in ipairs(config_action_id) do
+            if aid == current_action_id then
+                return true
+            end
+        end
+        return false
+    else
+        -- 单个值：精确匹配
+        return config_action_id == current_action_id
+    end
+end
+
+--- 内部函数：检查并激活当前动作的反击
+--- 在动作改变时调用，初始化当前动作的反击状态
+local function activate_counters_for_action()
+    derive._active_counters = {}
+    for reg_id, counter_config in pairs(derive.counter_registry) do
+        if match_action_id(counter_config.action_id, core._action_id) then
+            -- 为当前动作创建活跃的反击状态
+            derive._active_counters[reg_id] = {
+                remaining_count = counter_config.max_count,
+                frame_range = counter_config.frame_range,
+                callback = counter_config.callback
+            }
+        end
+    end
+end
+
+--- 内部函数：处理独立反击检测
+--- 在受伤检测钩子中调用
+---@return number|nil 返回2表示抵挡伤害，nil表示不处理
+local function process_counter_damage()
+    -- 检查是否有活跃的反击配置
+    if next(derive._active_counters) == nil then
+        return nil
+    end
+
+    local current_frame = core._action_frame
+
+    for _, active_counter in pairs(derive._active_counters) do
+        local frame_range = active_counter.frame_range
+        -- 检查帧数范围
+        if current_frame >= (frame_range[1] + 0.0) and current_frame <= (frame_range[2] + 0.0) then
+            -- 检查剩余次数
+            if active_counter.remaining_count > 0 then
+                active_counter.remaining_count = active_counter.remaining_count - 1
+
+                -- 调用回调函数
+                if active_counter.callback and type(active_counter.callback) == "function" then
+                    local success, err = pcall(active_counter.callback)
+                    if not success then
+                        table.insert(error_messages, "Counter callback error: " .. tostring(err))
+                    end
+                end
+
+                return 2 -- 完全抵挡伤害
+            end
+        end
+    end
+
+    return nil
+end
 
 -- ============================================================================
 -- 条件检查器 - 封装各种派生条件检查逻辑
@@ -1329,6 +1496,9 @@ function derive.on_action_change()
     derive_context.speed_index = nil
     derive_context.speed_modified = false
     derive_context.speed_node_id = nil
+
+    -- 激活当前动作的独立反击配置
+    activate_counters_for_action()
 end
 
 -- 获取派生攻击数据（用于钩子和调试）
@@ -1465,6 +1635,13 @@ end
 function derive.hook_post_check_calc_damage(retval)
     local dmgOwnerType = thread.get_hook_storage()["damageData"]:get_OwnerType()
     if (dmgOwnerType == 1 or dmgOwnerType == 0) then
+        -- 优先检查独立反击系统（Counter API）
+        local counter_result = process_counter_damage()
+        if counter_result then
+            return sdk.to_ptr(counter_result)
+        end
+
+        -- 检查派生系统的反击（counterAtk）
         local hit_counter_info = derive.get_hit_counter_info()
         if next(hit_counter_info) ~= nil then
             local frameInfo = hit_counter_info[3]

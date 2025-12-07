@@ -116,6 +116,12 @@ yun_modules.push_derive_table = derive.push_derive_table
 yun_modules.hook_evaluate_post = derive.hook_evaluate_post
 yun_modules.push_evaluate_post_functions = derive.push_evaluate_post_functions
 
+-- 导出独立反击接口（Counter API）
+yun_modules.add_counter = derive.add_counter       -- 添加反击（返回ID）
+yun_modules.remove_counter = derive.remove_counter -- 移除反击（通过ID）
+yun_modules.set_counter = derive.set_counter       -- 设置反击（轮询安全，通过key）
+yun_modules.unset_counter = derive.unset_counter   -- 移除反击（通过key）
+
 -- 导出怪物相关函数
 yun_modules.flinch_type = enemy.flinch_type
 yun_modules.set_flinch = enemy.set_flinch
