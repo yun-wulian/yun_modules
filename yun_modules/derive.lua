@@ -1319,7 +1319,9 @@ function derive.on_action_change()
     derive_context.ignore_keys = {} -- 清除忽略的按键
     derive_context.derive_atk_data = {} -- 清除派生攻击数据，防止跨动作累积
 
-    -- 清理速度状态：恢复原始速度并清除所有速度相关数据
+    -- 清理速度状态：恢复原始速度并重置状态标志
+    -- 注意：不清空 need_speed_change，因为派生后的速度配置需要在新动作中生效
+    -- need_speed_change 的清理由 update_speed 在节点改变时自动处理
     if derive_context.speed_modified then
         player.set_player_timescale(derive_context.speed_original or -1.0)
     end
@@ -1327,7 +1329,6 @@ function derive.on_action_change()
     derive_context.speed_index = nil
     derive_context.speed_modified = false
     derive_context.speed_node_id = nil
-    derive_context.need_speed_change = {} -- 清除所有速度变化记录
 end
 
 -- 获取派生攻击数据（用于钩子和调试）
