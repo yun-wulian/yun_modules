@@ -411,56 +411,66 @@ end
 
 -- 速度改变处理
 function DeriveContext:update_speed()
-    local found_active_node = false
-    for id, speed_table in pairs(self.need_speed_change) do
-        if core._current_node == id then
-            found_active_node = true
-            if self.speed_node_id ~= id then
+    -- 如果没有速度变化记录，直接返回
+    if next(self.need_speed_change) == nil then
+        return
+    end
+
+    -- 查找当前节点的速度配置
+    local speed_table = self.need_speed_change[core._current_node]
+
+    if speed_table then
+        -- 当前节点有速度配置
+        if self.speed_node_id ~= core._current_node then
+            -- 新的节点，保存当前速度作为原始速度（仅在未修改时保存）
+            if not self.speed_modified then
                 self.speed_original = player.get_player_timescale()
-                self.speed_node_id = id
-                self.speed_modified = false
-                self.speed_index = nil
             end
-            local target_speed, target_index = nil, nil
-            for i, frameRange in ipairs(speed_table["frame"]) do
-                if utils.isFrameInRange(core._action_frame, frameRange) then
-                    target_speed, target_index = speed_table["speed"][i], i
-                    break
-                end
-            end
-            if target_speed then
-                if self.speed_index ~= target_index then
-                    player.set_player_timescale(target_speed)
-                    self.speed_index = target_index
-                    self.speed_modified = true
-                end
-            else
-                if self.speed_modified then
-                    player.set_player_timescale(self.speed_original or -1.0)
-                    self.speed_modified = false
-                    self.speed_index = nil
-                end
-            end
-            break
-        elseif core._pre_node_id == id then
-            self.need_speed_change[id] = nil
-            if self.speed_node_id == id then
-                if self.speed_modified then
-                    player.set_player_timescale(self.speed_original or -1.0)
-                end
-                self.speed_original = nil
-                self.speed_index = nil
-                self.speed_modified = false
-                self.speed_node_id = nil
+            self.speed_node_id = core._current_node
+            self.speed_index = nil
+        end
+
+        -- 查找当前帧对应的速度
+        local target_speed, target_index = nil, nil
+        for i, frameRange in ipairs(speed_table["frame"]) do
+            if utils.isFrameInRange(core._action_frame, frameRange) then
+                target_speed, target_index = speed_table["speed"][i], i
+                break
             end
         end
-    end
-    if not found_active_node and self.speed_modified then
-        player.set_player_timescale(self.speed_original or -1.0)
-        self.speed_original = nil
-        self.speed_index = nil
-        self.speed_modified = false
-        self.speed_node_id = nil
+
+        if target_speed then
+            -- 在速度区间内
+            if self.speed_index ~= target_index then
+                player.set_player_timescale(target_speed)
+                self.speed_index = target_index
+                self.speed_modified = true
+            end
+        else
+            -- 不在任何速度区间内，恢复原始速度
+            if self.speed_modified then
+                player.set_player_timescale(self.speed_original or -1.0)
+                self.speed_modified = false
+                self.speed_index = nil
+            end
+        end
+    else
+        -- 当前节点没有速度配置
+        -- 清理不再匹配的旧记录（节点已改变）
+        for id, _ in pairs(self.need_speed_change) do
+            if id ~= core._current_node then
+                self.need_speed_change[id] = nil
+            end
+        end
+
+        -- 如果之前有速度修改，恢复原始速度
+        if self.speed_modified then
+            player.set_player_timescale(self.speed_original or -1.0)
+            self.speed_original = nil
+            self.speed_index = nil
+            self.speed_modified = false
+            self.speed_node_id = nil
+        end
     end
 end
 
@@ -1306,6 +1316,16 @@ function derive.on_action_change()
     derive_context:clear_delay_pending()
     derive_context.ignore_keys = {} -- 清除忽略的按键
     derive_context.derive_atk_data = {} -- 清除派生攻击数据，防止跨动作累积
+
+    -- 清理速度状态：恢复原始速度并清除所有速度相关数据
+    if derive_context.speed_modified then
+        player.set_player_timescale(derive_context.speed_original or -1.0)
+    end
+    derive_context.speed_original = nil
+    derive_context.speed_index = nil
+    derive_context.speed_modified = false
+    derive_context.speed_node_id = nil
+    derive_context.need_speed_change = {} -- 清除所有速度变化记录
 end
 
 -- 获取派生攻击数据（用于钩子和调试）
