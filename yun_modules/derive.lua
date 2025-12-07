@@ -22,9 +22,13 @@
 --     -- 输入设置（可选）
 --     isHolding = false,             -- 是否需要按住按键（可选，默认 false）
 --     holdingTime = 0.5,             -- 按住时长（秒）（可选，配合 isHolding 使用）
---     tarLstickDir = 1,              -- 摇杆方向限制（可选，四个方向）
+--     tarLstickDir = 1,              -- 摇杆方向限制（可选，四个方向，-1表示任意方向）
 --     isByPlayerDir = true,          -- 摇杆方向是否基于玩家朝向（可选，默认 true）
---     needIgnoreOriginalKey = 1,     -- 需要屏蔽的原始按键命令（可选）
+--     needIgnoreOriginalKey = 1,     -- 需要屏蔽的原始按键命令（可选，支持表格 {1, 2, 3}）
+--     delay = true,                  -- 延迟派生（可选，用于连招组合键优先级控制）
+--                                    -- true 使用默认延迟时间（约0.083秒）
+--                                    -- 或指定秒数如 delay = 0.1（0.1秒）
+--                                    -- 延迟派生会等待一小段时间，期间可被非延迟派生抢占
 --
 --     -- 翔虫设置（可选）
 --     useWire = {1, 5.0},            -- 使用翔虫 {消耗数量, 冷却时间（秒）}（可选）
@@ -212,6 +216,7 @@ end
 -- 常量定义
 local CONST = {
     DEFAULT_PRE_FRAME = 10.0,
+    DEFAULT_DELAY_TIME = 0.083, -- 延迟等待时间（秒），约等于60fps下的5帧
 }
 
 -- 派生类型
@@ -269,6 +274,11 @@ function DeriveContext.new()
     -- specialCondition派生执行跟踪
     self.executed_special_derives = {} -- 记录已执行的特殊派生
 
+    -- 预输入和延迟派生状态
+    self.pre_input_last = nil          -- 预输入阶段最后的输入 {targetNode, rule, wrappered_id}
+    self.delay_pending = nil           -- 延迟等待的派生信息 {targetNode, rule, wrappered_id, delay_time}
+    self.delay_elapsed = 0             -- 延迟已等待时间（秒）
+
     return self
 end
 
@@ -288,6 +298,11 @@ function DeriveContext:reset()
     self.callback_id = 0
     self.need_clear = -1
     self.executed_special_derives = {} -- 清除特殊派生执行记录
+    -- 清除预输入和延迟状态
+    self.pre_input_last = nil
+    self.delay_pending = nil
+    self.delay_elapsed = 0
+    self.ignore_keys = {} -- 清除忽略的按键
 end
 
 -- 检查是否需要清理数据
@@ -325,6 +340,73 @@ function DeriveContext:check_holding_key(key, time)
         self.pressed_time = 0.0
     end
     return false
+end
+
+-- 保存预输入（预输入阶段存储最后一个输入，覆盖式）
+---@param targetNode number 目标节点
+---@param rule table 派生规则
+---@param wrappered_id number 包装ID
+function DeriveContext:save_pre_input(targetNode, rule, wrappered_id)
+    self.pre_input_last = {
+        targetNode = targetNode,
+        rule = rule,
+        wrappered_id = wrappered_id
+    }
+end
+
+-- 清除预输入
+function DeriveContext:clear_pre_input()
+    self.pre_input_last = nil
+end
+
+-- 获取延迟时间（秒）
+---@param rule table 派生规则
+---@return number 延迟时间（秒）
+function DeriveContext:get_delay_time(rule)
+    local delay = rule.delay
+    if delay == true then
+        return CONST.DEFAULT_DELAY_TIME
+    elseif type(delay) == "number" then
+        return delay
+    end
+    return 0
+end
+
+-- 设置延迟等待
+---@param targetNode number 目标节点
+---@param rule table 派生规则
+---@param wrappered_id number 包装ID
+function DeriveContext:set_delay_pending(targetNode, rule, wrappered_id)
+    local delay_time = self:get_delay_time(rule)
+    self.delay_pending = {
+        targetNode = targetNode,
+        rule = rule,
+        wrappered_id = wrappered_id,
+        delay_time = delay_time
+    }
+    self.delay_elapsed = 0
+end
+
+-- 清除延迟等待
+function DeriveContext:clear_delay_pending()
+    self.delay_pending = nil
+    self.delay_elapsed = 0
+end
+
+-- 更新延迟计时
+---@return boolean 是否到期
+function DeriveContext:update_delay_elapsed()
+    if self.delay_pending then
+        self.delay_elapsed = self.delay_elapsed + player.get_delta_time()
+        return self.delay_elapsed >= self.delay_pending.delay_time
+    end
+    return false
+end
+
+-- 检查是否有延迟等待中
+---@return boolean 是否有延迟等待
+function DeriveContext:has_delay_pending()
+    return self.delay_pending ~= nil
 end
 
 -- 速度改变处理
@@ -834,86 +916,111 @@ function DeriveRuleProcessor.process(rule, context, wrappered_id)
     local derive_type = ConditionChecker.get_derive_type(rule)
 
     -- 6. 对于命中派生和反击派生，跳过输入窗口和开始帧检查（它们基于事件触发）
-    if derive_type ~= DeriveType.HIT and derive_type ~= DeriveType.COUNTER then
-        -- 检查是否在输入窗口内
-        if not ConditionChecker.check_input_window(rule) then
-            return false
-        end
-
-        -- 检查是否到达开始帧
-        if not ConditionChecker.check_start_frame(rule) then
-            return false
-        end
+    if derive_type == DeriveType.HIT or derive_type == DeriveType.COUNTER then
+        -- 命中和反击派生直接尝试执行
+        return DeriveRuleProcessor.try_execute_special(rule, context, wrappered_id, derive_type, targetNode)
     end
 
-    -- 7. 检查翔虫数量
+    -- ============================================================================
+    -- 以下逻辑仅适用于普通派生和自动派生
+    -- ============================================================================
+
+    -- 7. 检查是否在输入窗口内（startFrame - preFrame 到当前帧）
+    if not ConditionChecker.check_input_window(rule) then
+        return false
+    end
+
+    -- 8. 检查翔虫数量（提前检查，避免无效的输入记录）
     if not ConditionChecker.check_wire_gauge(rule) then
         return false
     end
 
-    -- 8. 检查摇杆方向
+    -- 9. 检查摇杆方向
     if not ConditionChecker.check_lstick_direction(rule) then
         return false
     end
 
-    -- 9. 设置需要忽略的原始按键（所有条件都满足，准备接收输入）
-    -- 只对普通派生（需要按键输入）进行处理
-    if derive_type == DeriveType.NORMAL and rule.needIgnoreOriginalKey ~= nil then
-        if not context.ignore_keys[wrappered_id] then
-            context.ignore_keys[wrappered_id] = {}
-        end
+    -- 10. 计算是否到达开始帧（区分预输入阶段和可派生阶段）
+    local is_derivable = ConditionChecker.check_start_frame(rule)
+    local has_delay = rule.delay ~= nil
 
-        -- 检查是否已经添加过，避免重复
-        local already_exists = false
-        for _, key in ipairs(context.ignore_keys[wrappered_id]) do
-            if key == rule.needIgnoreOriginalKey then
-                already_exists = true
+    -- 11. 设置需要忽略的原始按键（在输入窗口内就需要设置）
+    if derive_type == DeriveType.NORMAL and rule.needIgnoreOriginalKey ~= nil then
+        DeriveRuleProcessor.add_ignore_key(rule, context, wrappered_id)
+    end
+
+    -- 12. 检测当前帧输入
+    local has_input = false
+    if derive_type == DeriveType.NORMAL then
+        has_input = ConditionChecker.check_input(rule, context)
+    elseif derive_type == DeriveType.AUTO then
+        has_input = true -- 自动派生始终"有输入"
+    end
+
+    -- ============================================================================
+    -- 核心逻辑：预输入阶段 vs 可派生阶段
+    -- ============================================================================
+
+    if not is_derivable then
+        -- 【预输入阶段】：只记录输入，不执行
+        if has_input then
+            context:save_pre_input(targetNode, rule, wrappered_id)
+        end
+        return false
+    end
+
+    -- 【可派生阶段】：到达startFrame，可以执行派生
+    return DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_type, targetNode, has_input, has_delay)
+end
+
+-- 添加忽略按键的辅助函数
+---@param rule table 派生规则
+---@param context table 派生上下文
+---@param wrappered_id number 包装ID
+function DeriveRuleProcessor.add_ignore_key(rule, context, wrappered_id)
+    if not context.ignore_keys[wrappered_id] then
+        context.ignore_keys[wrappered_id] = {}
+    end
+
+    local ignoreKey = rule.needIgnoreOriginalKey
+
+    -- 支持表格形式 {1, 2, 3}
+    if type(ignoreKey) == "table" then
+        for _, key in ipairs(ignoreKey) do
+            local exists = false
+            for _, existing in ipairs(context.ignore_keys[wrappered_id]) do
+                if existing == key then
+                    exists = true
+                    break
+                end
+            end
+            if not exists then
+                table.insert(context.ignore_keys[wrappered_id], key)
+            end
+        end
+    else
+        -- 单个值
+        local exists = false
+        for _, existing in ipairs(context.ignore_keys[wrappered_id]) do
+            if existing == ignoreKey then
+                exists = true
                 break
             end
         end
-
-        if not already_exists then
-            table.insert(context.ignore_keys[wrappered_id], rule.needIgnoreOriginalKey)
+        if not exists then
+            table.insert(context.ignore_keys[wrappered_id], ignoreKey)
         end
     end
-
-    -- 10. 处理输入检测和缓存（普通派生和自动派生）
-    if derive_type == DeriveType.NORMAL or derive_type == DeriveType.AUTO then
-        InputHandler.process_input_cache(rule, context)
-    end
-
-    -- 11. 尝试执行派生
-    return DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_type, targetNode)
 end
 
--- 尝试执行派生（静态函数）
+-- 尝试执行命中/反击派生（静态函数）
 ---@param rule table 派生规则
 ---@param context table 派生上下文
 ---@param wrappered_id number 包装ID
 ---@param derive_type string 派生类型
 ---@param targetNode number 目标节点
 ---@return boolean 是否成功执行
-function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_type, targetNode)
-    -- 普通派生和自动派生：检查输入缓存
-    if derive_type == DeriveType.NORMAL or derive_type == DeriveType.AUTO then
-        -- 关键修复：验证 input_cache 是否匹配当前规则的 targetNode，并且是在有效的输入窗口内缓存的
-        if context.input_cache ~= 0 and context.input_cache == targetNode then
-            -- 额外的验证：确保当前帧在输入窗口内，避免使用过期的缓存
-            local startFrame = get_start_frame(rule)
-            local preFrame = rule.preFrame or CONST.DEFAULT_PRE_FRAME
-            local currentFrame = core._action_frame
-
-            -- 检查是否在有效的输入窗口内（当前帧 >= 开始帧 - 前置帧）
-            if (startFrame - preFrame) <= currentFrame then
-                DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
-                return true
-            else
-                -- 如果不在输入窗口内，清除过期的缓存
-                context:clear_input_cache()
-            end
-        end
-    end
-
+function DeriveRuleProcessor.try_execute_special(rule, context, wrappered_id, derive_type, targetNode)
     -- 命中派生
     if derive_type == DeriveType.HIT then
         if ConditionChecker.check_hit_condition(rule, context) then
@@ -928,6 +1035,84 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
         if ConditionChecker.check_counter_condition(rule, context) then
             DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
             context.counter_success = false  -- 重置反击标志
+            return true
+        end
+    end
+
+    return false
+end
+
+-- 尝试执行普通/自动派生（静态函数）
+-- 【可派生阶段】的核心逻辑
+---@param rule table 派生规则
+---@param context table 派生上下文
+---@param wrappered_id number 包装ID
+---@param derive_type string 派生类型
+---@param targetNode number 目标节点
+---@param has_input boolean 当前帧是否有输入
+---@param has_delay boolean 是否是delay派生
+---@return boolean 是否成功执行
+function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_type, targetNode, has_input, has_delay)
+    -- ============================================================================
+    -- 情况1：有delay_pending正在等待
+    -- ============================================================================
+    if context:has_delay_pending() then
+        -- 检查是否有非delay派生的输入要抢占
+        if has_input and not has_delay then
+            -- 非delay派生抢占delay派生
+            context:clear_delay_pending()
+            context:clear_pre_input()
+            DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
+            return true
+        end
+
+        -- 检查是否有新的delay派生输入（覆盖现有的）
+        if has_input and has_delay then
+            -- 新的delay派生覆盖旧的
+            context:set_delay_pending(targetNode, rule, wrappered_id)
+            context:clear_pre_input()
+            return false -- 还未执行，继续等待
+        end
+
+        -- 没有新输入，检查当前等待的delay是否到期
+        -- 注意：这里不检查，delay到期在update中统一处理
+        return false
+    end
+
+    -- ============================================================================
+    -- 情况2：没有delay_pending，检查预输入
+    -- ============================================================================
+    local pre_input = context.pre_input_last
+
+    -- 首先处理预输入（如果有且匹配当前规则）
+    -- 使用规则引用比较，确保只有保存预输入的那个规则才能消费它
+    if pre_input and pre_input.rule == rule then
+        local pre_has_delay = rule.delay ~= nil
+
+        if pre_has_delay then
+            -- 预输入的派生是delay类型，开始等待
+            context:set_delay_pending(targetNode, rule, wrappered_id)
+            context:clear_pre_input()
+            return false -- 开始等待，还未执行
+        else
+            -- 预输入的派生是非delay类型，立即执行
+            context:clear_pre_input()
+            DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
+            return true
+        end
+    end
+
+    -- ============================================================================
+    -- 情况3：没有预输入，检查当前帧输入
+    -- ============================================================================
+    if has_input then
+        if has_delay then
+            -- delay派生，开始等待
+            context:set_delay_pending(targetNode, rule, wrappered_id)
+            return false -- 开始等待，还未执行
+        else
+            -- 非delay派生，立即执行
+            DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
             return true
         end
     end
@@ -1075,8 +1260,29 @@ local function wrappered_id_clear_data()
     derive_context:check_and_clear()
 end
 
+-- 处理delay到期
+local function process_delay_timeout()
+    if derive_context:has_delay_pending() then
+        -- 更新延迟计时
+        if derive_context:update_delay_elapsed() then
+            -- 延迟到期，执行派生
+            local pending = derive_context.delay_pending
+            DeriveExecutor.execute(
+                pending.targetNode,
+                pending.rule,
+                derive_context,
+                pending.wrappered_id
+            )
+            derive_context:clear_delay_pending()
+        end
+    end
+end
+
 -- 更新函数
 function derive.update()
+    -- 先处理delay到期（优先于新输入检测）
+    process_delay_timeout()
+    -- 处理派生规则（包括新输入检测和抢占）
     derive_wrapper(derive.deriveTable)
     derive_context:update_speed()
 end
@@ -1095,6 +1301,11 @@ function derive.on_action_change()
     derive_context.executed_special_derives = {} -- 清除特殊派生执行记录
     derive_context.hit_success = -1 -- 清除命中标志
     derive_context.counter_success = false -- 清除反击标志
+    -- 清除预输入和延迟状态
+    derive_context:clear_pre_input()
+    derive_context:clear_delay_pending()
+    derive_context.ignore_keys = {} -- 清除忽略的按键
+    derive_context.derive_atk_data = {} -- 清除派生攻击数据，防止跨动作累积
 end
 
 -- 获取派生攻击数据（用于钩子和调试）
