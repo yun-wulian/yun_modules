@@ -617,15 +617,17 @@ function DeriveContext:update_speed()
         end
     else
         -- 当前节点没有速度配置
-        -- 清理不再匹配的旧记录（节点已改变）
-        for id, _ in pairs(self.need_speed_change) do
-            if id ~= core._current_node then
-                self.need_speed_change[id] = nil
-            end
-        end
-
-        -- 如果之前有速度修改，恢复原始速度
+        -- 只有在之前应用过速度修改时才清理旧记录和恢复速度
+        -- 这样避免在派生刚执行时（core._current_node 尚未更新）误删配置
         if self.speed_modified then
+            -- 清理不再匹配的旧记录（节点已改变）
+            for id, _ in pairs(self.need_speed_change) do
+                if id ~= core._current_node then
+                    self.need_speed_change[id] = nil
+                end
+            end
+
+            -- 恢复原始速度
             player.set_player_timescale(self.speed_original or -1.0)
             self.speed_original = nil
             self.speed_index = nil
