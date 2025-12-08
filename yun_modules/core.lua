@@ -2,36 +2,11 @@
 -- 核心变量和游戏数据管理
 
 local core = {}
+local constant = require("yunwulian.yun_modules.constant")
 
--- 武器类型枚举
-core.weapon_type = {
-    GreatSword = 0,      -- 大剑
-    SlashAxe = 1,        -- 斩击斧
-    LongSword = 2,       -- 太刀
-    LightBowGun = 3,     -- 轻弩
-    HeavyBowGun = 4,     -- 重弩
-    Hammer = 5,          -- 锤
-    GunLance = 6,        -- 铳枪
-    Lance = 7,           -- 长枪
-    ShortSword = 8,      -- 短剑
-    DualBlade = 9,       -- 双剑
-    Horn = 10,           -- 狩猎笛
-    ChargeAxe = 11,      -- 充能斧
-    InsectGlaive = 12,   -- 操虫棍
-    Bow = 13             -- 弓
-}
-
--- 方向枚举
-core.direction = {
-    Up = 0,              -- 上
-    Down = 1,            -- 下
-    Left = 2,            -- 左
-    Right = 3,           -- 右
-    RightUp = 4,         -- 右上
-    RightDown = 5,       -- 右下
-    LeftUp = 6,          -- 左上
-    LeftDown = 7         -- 左下
-}
+-- 引用常量模块的枚举
+core.weapon_type = constant.weapon_type
+core.direction = constant.direction
 
 -- 核心游戏对象单例
 core.GuiManager = nil           -- GUI管理器

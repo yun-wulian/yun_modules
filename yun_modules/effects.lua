@@ -182,14 +182,10 @@
 local effects = {}
 local core = require("yunwulian.yun_modules.core")
 local utils = require("yunwulian.yun_modules.utils")
+local constant = require("yunwulian.yun_modules.constant")
 
--- ============================================================================
--- 动作状态枚举 - 用于特效表的特殊键
--- ============================================================================
-
-effects.on_action_status = {
-    AttackActive = "AttackActive"  -- 攻击判定激活时（从initialize到destroy）
-}
+-- 引用常量模块的枚举
+effects.on_action_status = constant.on_action_status
 
 -- ============================================================================
 -- 缓动函数库

@@ -5,6 +5,7 @@
 local yun_modules = {}
 
 -- 导入子模块
+local constant = require("yunwulian.yun_modules.constant")
 local core = require("yunwulian.yun_modules.core")
 local utils = require("yunwulian.yun_modules.utils")
 local player = require("yunwulian.yun_modules.player")
@@ -18,8 +19,12 @@ local ui = require("yunwulian.yun_modules.ui")
 local enemy = require("yunwulian.yun_modules.enemy")
 
 -- 导出枚举类型
+yun_modules.constant = constant  -- 常量模块
 yun_modules.weapon_type = core.weapon_type
 yun_modules.direction = core.direction
+yun_modules.isCmd = constant.isCmd  -- 按键命令枚举（用于 targetCmd）
+yun_modules.isOn = constant.isOn    -- 按键状态枚举（用于 isHolding）
+yun_modules.commandFsm = constant.commandFsm  -- FSM命令枚举（用于 needIgnoreOriginalKey）
 
 -- 导出时间函数
 yun_modules.get_time = player.get_time

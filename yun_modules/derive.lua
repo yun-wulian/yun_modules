@@ -144,6 +144,80 @@
 --         }
 --     }
 -- }
+--
+-- ============================================================================
+-- 按键枚举使用说明
+-- ============================================================================
+--
+-- 派生系统使用两种按键检测方式，对应两个枚举：
+--
+-- 1. constant.isCmd - 用于 targetCmd 字段（单次触发检测）
+--    - 检测按键是否被按下（瞬间触发）
+--    - 常用值：
+--      constant.isCmd.AtkX      = 0   -- X攻击
+--      constant.isCmd.AtkA      = 1   -- A攻击
+--      constant.isCmd.AtkXA     = 2   -- X+A攻击
+--      constant.isCmd.Escape    = 19  -- 回避
+--      constant.isCmd.Guard     = 26  -- 防御
+--      constant.isCmd.WireUp    = 33  -- 翔虫向上
+--      constant.isCmd.WireFront = 34  -- 翔虫向前
+--
+-- 2. constant.isOn - 用于 isHolding 检测（按住检测）
+--    - 检测按键是否被持续按住
+--    - 常用值：
+--      constant.isOn.Atk_X  = 0   -- X攻击
+--      constant.isOn.Atk_A  = 1   -- A攻击
+--      constant.isOn.Atk_R1 = 2   -- R1攻击
+--      constant.isOn.Escape = 3   -- 回避
+--      constant.isOn.Guard  = 4   -- 防御
+--      constant.isOn.ZL     = 8   -- ZL
+--      constant.isOn.ZR     = 9   -- ZR
+--
+-- 3. constant.commandFsm - 用于 needIgnoreOriginalKey 字段（屏蔽原始按键）
+--    - 屏蔽游戏原始按键命令，防止派生时触发游戏默认动作
+--    - 常用值：
+--      constant.commandFsm.AtkA     = 1   -- A攻击
+--      constant.commandFsm.AtkX     = 2   -- X攻击
+--      constant.commandFsm.AtkXA    = 4   -- X+A攻击
+--      constant.commandFsm.AtkR1    = 8   -- R1攻击
+--      constant.commandFsm.Escape   = 24  -- 回避
+--      constant.commandFsm.Guard    = 31  -- 防御
+--      constant.commandFsm.WireUp   = 37  -- 翔虫向上
+--      constant.commandFsm.WireFront = 38 -- 翔虫向前
+--
+-- 示例：使用枚举定义派生
+-- local constant = require("yunwulian.yun_modules.constant")
+-- local derive_table = {
+--     [constant.weapon_type.ChargeAxe] = {
+--         [100] = {
+--             {
+--                 targetNode = 0x12345678,
+--                 targetCmd = constant.isCmd.AtkXA,  -- X+A攻击触发
+--             },
+--             {
+--                 targetNode = 0x87654321,
+--                 targetCmd = constant.isCmd.Guard,  -- 防御触发
+--                 isHolding = true,                  -- 需要按住（使用 isOn 检测）
+--             },
+--             -- 示例3：使用 needIgnoreOriginalKey 屏蔽原始按键
+--             {
+--                 targetNode = 0xAABBCCDD,
+--                 targetCmd = constant.isCmd.AtkA,   -- A攻击触发
+--                 needIgnoreOriginalKey = constant.commandFsm.AtkA,  -- 屏蔽原始A攻击
+--             },
+--             -- 示例4：屏蔽多个原始按键
+--             {
+--                 targetNode = 0x11223344,
+--                 targetCmd = constant.isCmd.AtkXA,  -- X+A攻击触发
+--                 needIgnoreOriginalKey = {         -- 屏蔽多个按键
+--                     constant.commandFsm.AtkX,
+--                     constant.commandFsm.AtkA,
+--                     constant.commandFsm.AtkXA,
+--                 },
+--             },
+--         }
+--     }
+-- }
 -- ============================================================================
 
 local derive = {}
@@ -152,6 +226,7 @@ local utils = require("yunwulian.yun_modules.utils")
 local input = require("yunwulian.yun_modules.input")
 local action = require("yunwulian.yun_modules.action")
 local player = require("yunwulian.yun_modules.player")
+local constant = require("yunwulian.yun_modules.constant")
 
 -- 派生表注册（使用字典结构支持动态移除）
 derive.deriveTable = {}
@@ -306,19 +381,9 @@ end
 -- 状态机重构 - 新实现
 -- ============================================================================
 
--- 常量定义
-local CONST = {
-    DEFAULT_PRE_FRAME = 10.0,
-    DEFAULT_DELAY_TIME = 0.083, -- 延迟等待时间（秒），约等于60fps下的5帧
-}
-
--- 派生类型
-local DeriveType = {
-    NORMAL = "normal",        -- 普通派生（需要输入）
-    HIT = "hit",             -- 命中派生
-    COUNTER = "counter",     -- 反击派生
-    AUTO = "auto"            -- 自动派生（无需输入）
-}
+-- 引用常量模块
+local CONST = constant.derive
+local DeriveType = constant.derive_type
 
 -- 派生上下文 - 管理派生过程中的全局状态
 local DeriveContext = {}
