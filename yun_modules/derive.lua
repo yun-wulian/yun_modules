@@ -429,6 +429,7 @@ function DeriveContext.new()
     self.speed_index = nil
     self.speed_modified = false
     self.speed_node_id = nil
+    self.speed_change_pending = false  -- 标记速度配置是否刚设置，派生后第一次动作改变不清除
 
     -- specialCondition派生执行跟踪
     self.executed_special_derives = {} -- 记录已执行的特殊派生
@@ -1075,6 +1076,7 @@ function DeriveExecutor.apply_speed_change(rule, context, target_node)
     local actionSpeed = rule.actionSpeed
     if actionSpeed ~= nil then
         context.need_speed_change[target_node] = utils.deepCopy(actionSpeed)
+        context.speed_change_pending = true  -- 标记为待处理，派生后第一次动作改变不清除
     end
 end
 
@@ -1574,8 +1576,6 @@ function derive.on_action_change()
     end
 
     -- 清理速度状态：恢复原始速度并重置状态标志
-    -- 注意：不清空 need_speed_change，因为派生后的速度配置需要在新动作中生效
-    -- need_speed_change 的清理由 update_speed 在节点改变时自动处理
     if derive_context.speed_modified then
         player.set_player_timescale(derive_context.speed_original or -1.0)
     end
@@ -1583,6 +1583,15 @@ function derive.on_action_change()
     derive_context.speed_index = nil
     derive_context.speed_modified = false
     derive_context.speed_node_id = nil
+
+    -- 速度配置清除逻辑（与 derive_atk_data_pending 类似）：
+    -- 如果是刚派生设置的（pending=true），第一次动作改变不清除，只取消标志
+    -- 如果不是刚设置的（pending=false），清除数据
+    if derive_context.speed_change_pending then
+        derive_context.speed_change_pending = false
+    else
+        derive_context.need_speed_change = {}
+    end
 
     -- 激活当前动作的独立反击配置
     activate_counters_for_action()
