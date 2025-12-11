@@ -75,12 +75,22 @@
 --    - 满足条件后自动触发
 --
 -- 3. 命中派生（HIT）
---    - 需要 targetNode 和 hit = true
---    - 攻击命中敌人后触发
+--    - 需要 targetNode 和 hit = true，不设置 targetCmd
+--    - 攻击命中敌人后自动触发
 --
 -- 4. 反击派生（COUNTER）
---    - 需要 targetNode 和 counterAtk = {true, 次数, {开始帧, 结束帧}}
---    - 在指定帧数内受到攻击时触发
+--    - 需要 targetNode 和 counterAtk = {true, 次数, {开始帧, 结束帧}}，不设置 targetCmd
+--    - 在指定帧数内受到攻击时自动触发
+--
+-- 5. 命中解锁派生（HIT + NORMAL）
+--    - 需要 targetNode、hit = true 和 targetCmd
+--    - 命中后解锁，然后需要按下按键才触发
+--    - 适用于：命中后可选择是否追击的场景
+--
+-- 6. 反击解锁派生（COUNTER + NORMAL）
+--    - 需要 targetNode、counterAtk 和 targetCmd
+--    - 反击成功后解锁，然后需要按下按键才触发
+--    - 适用于：反击后可选择追击方式的场景
 --
 -- ============================================================================
 -- 完整示例
@@ -108,14 +118,14 @@
 --                 end,
 --                 jmpFrame = 20,           -- 派生后跳转到第 20 帧
 --             },
---             -- 示例3：命中派生
+--             -- 示例3：命中派生（命中后自动触发）
 --             {
 --                 targetNode = 0xAABBCCDD,
---                 hit = true,              -- 命中后触发
+--                 hit = true,              -- 命中后自动触发
 --                 hitLag = 5,              -- 命中后延迟 5 帧
 --                 atkMult = {2.0, 1},
 --             },
---             -- 示例4：反击派生
+--             -- 示例4：反击派生（反击后自动触发）
 --             {
 --                 targetNode = 0x11223344,
 --                 counterAtk = {true, 1, {10, 30}},  -- 10-30 帧内受击，触发 1 次反击
@@ -140,6 +150,21 @@
 --                 onDeriveSuccess = function()
 --                     log.info("派生成功！")
 --                 end
+--             },
+--             -- 示例7：命中解锁派生（命中后需要按键才触发）
+--             {
+--                 targetNode = 0xDDEEFF00,
+--                 hit = true,              -- 需要先命中
+--                 targetCmd = 1,           -- 命中后按 A 键才派生
+--                 hitLag = 3,              -- 命中后延迟 3 帧才能按键
+--                 atkMult = {2.5, 1},
+--             },
+--             -- 示例8：反击解锁派生（反击后需要按键才触发）
+--             {
+--                 targetNode = 0x00112233,
+--                 counterAtk = {true, 1, {5, 25}},  -- 5-25 帧内受击解锁
+--                 targetCmd = 0,           -- 解锁后按 X 键才派生
+--                 atkMult = {3.0, 1},
 --             }
 --         }
 --     }
@@ -933,15 +958,59 @@ end
 ---@param rule table 派生规则
 ---@return string 派生类型
 function ConditionChecker.get_derive_type(rule)
+    -- 有 targetCmd 时，hit 和 counterAtk 作为前置解锁条件，类型仍为 NORMAL
+    if rule.targetCmd ~= nil then
+        return DeriveType.NORMAL
+    end
+
+    -- 无 targetCmd 时，保持原有自动派生逻辑
     if rule.counterAtk ~= nil then
         return DeriveType.COUNTER
     elseif rule.hit ~= nil then
         return DeriveType.HIT
-    elseif rule.targetCmd == nil then
-        return DeriveType.AUTO
     else
-        return DeriveType.NORMAL
+        return DeriveType.AUTO
     end
+end
+
+-- 检查命中解锁条件（用于 hit + targetCmd 的情况）
+---@param rule table 派生规则
+---@param context table 派生上下文
+---@return boolean 是否已解锁
+function ConditionChecker.check_hit_unlock(rule, context)
+    -- 如果规则没有 hit 要求，直接通过
+    if rule.hit == nil then
+        return true
+    end
+
+    -- 需要 hit，检查是否已命中
+    if context.hit_success == -1 then
+        return false
+    end
+
+    -- 检查命中延迟
+    local hitLag = rule.hitLag
+    if hitLag ~= nil then
+        if context.hit_success + (hitLag + 0.0) >= core._action_frame then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- 检查反击解锁条件（用于 counterAtk + targetCmd 的情况）
+---@param rule table 派生规则
+---@param context table 派生上下文
+---@return boolean 是否已解锁
+function ConditionChecker.check_counter_unlock(rule, context)
+    -- 如果规则没有 counterAtk 要求，直接通过
+    if rule.counterAtk == nil then
+        return true
+    end
+
+    -- 需要 counterAtk，检查是否已反击成功
+    return context.counter_success
 end
 
 -- ============================================================================
@@ -1313,16 +1382,43 @@ end
 ---@param has_delay boolean 是否是delay派生
 ---@return boolean 是否成功执行
 function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_type, targetNode, has_input, has_delay)
+    -- 辅助函数：检查解锁条件（hit + targetCmd 或 counterAtk + targetCmd 的情况）
+    local function check_unlock_conditions()
+        if not ConditionChecker.check_hit_unlock(rule, context) then
+            return false
+        end
+        if not ConditionChecker.check_counter_unlock(rule, context) then
+            return false
+        end
+        return true
+    end
+
+    -- 辅助函数：执行派生并重置解锁标志
+    local function execute_and_reset()
+        DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
+        -- 执行成功后重置解锁标志
+        if rule.hit ~= nil then
+            context.hit_success = -1
+        end
+        if rule.counterAtk ~= nil then
+            context.counter_success = false
+        end
+    end
+
     -- ============================================================================
     -- 情况1：有delay_pending正在等待
     -- ============================================================================
     if context:has_delay_pending() then
         -- 检查是否有非delay派生的输入要抢占
         if has_input and not has_delay then
+            -- 检查解锁条件
+            if not check_unlock_conditions() then
+                return false
+            end
             -- 非delay派生抢占delay派生
             context:clear_delay_pending()
             context:clear_pre_input()
-            DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
+            execute_and_reset()
             return true
         end
 
@@ -1347,6 +1443,11 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
     -- 首先处理预输入（如果有且匹配当前规则）
     -- 使用规则引用比较，确保只有保存预输入的那个规则才能消费它
     if pre_input and pre_input.rule == rule then
+        -- 检查解锁条件（预输入可能在命中之前记录，需要等待解锁）
+        if not check_unlock_conditions() then
+            return false -- 保留预输入，等待下一帧再检查
+        end
+
         local pre_has_delay = rule.delay ~= nil
 
         if pre_has_delay then
@@ -1357,7 +1458,7 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
         else
             -- 预输入的派生是非delay类型，立即执行
             context:clear_pre_input()
-            DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
+            execute_and_reset()
             return true
         end
     end
@@ -1366,13 +1467,18 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
     -- 情况3：没有预输入，检查当前帧输入
     -- ============================================================================
     if has_input then
+        -- 检查解锁条件
+        if not check_unlock_conditions() then
+            return false
+        end
+
         if has_delay then
             -- delay派生，开始等待
             context:set_delay_pending(targetNode, rule, wrappered_id)
             return false -- 开始等待，还未执行
         else
             -- 非delay派生，立即执行
-            DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
+            execute_and_reset()
             return true
         end
     end
@@ -1525,14 +1631,34 @@ local function process_delay_timeout()
     if derive_context:has_delay_pending() then
         -- 更新延迟计时
         if derive_context:update_delay_elapsed() then
-            -- 延迟到期，执行派生
+            -- 延迟到期，检查解锁条件
             local pending = derive_context.delay_pending
+            local rule = pending.rule
+
+            -- 检查解锁条件
+            if not ConditionChecker.check_hit_unlock(rule, derive_context) then
+                return -- 未解锁，继续等待（不清除 delay_pending）
+            end
+            if not ConditionChecker.check_counter_unlock(rule, derive_context) then
+                return -- 未解锁，继续等待（不清除 delay_pending）
+            end
+
+            -- 执行派生
             DeriveExecutor.execute(
                 pending.targetNode,
-                pending.rule,
+                rule,
                 derive_context,
                 pending.wrappered_id
             )
+
+            -- 重置解锁标志
+            if rule.hit ~= nil then
+                derive_context.hit_success = -1
+            end
+            if rule.counterAtk ~= nil then
+                derive_context.counter_success = false
+            end
+
             derive_context:clear_delay_pending()
         end
     end
