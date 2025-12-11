@@ -1342,6 +1342,36 @@ function DeriveRuleProcessor.add_ignore_key(rule, context, wrappered_id)
     end
 end
 
+-- 检查解锁条件（静态辅助函数，避免每次调用创建闭包）
+---@param rule table 派生规则
+---@param context table 派生上下文
+---@return boolean 是否已解锁
+function DeriveRuleProcessor.check_unlock_conditions(rule, context)
+    if not ConditionChecker.check_hit_unlock(rule, context) then
+        return false
+    end
+    if not ConditionChecker.check_counter_unlock(rule, context) then
+        return false
+    end
+    return true
+end
+
+-- 执行派生并重置解锁标志（静态辅助函数，避免每次调用创建闭包）
+---@param targetNode number 目标节点
+---@param rule table 派生规则
+---@param context table 派生上下文
+---@param wrappered_id number 包装ID
+function DeriveRuleProcessor.execute_and_reset_unlock(targetNode, rule, context, wrappered_id)
+    DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
+    -- 执行成功后重置解锁标志
+    if rule.hit ~= nil then
+        context.hit_success = -1
+    end
+    if rule.counterAtk ~= nil then
+        context.counter_success = false
+    end
+end
+
 -- 尝试执行命中/反击派生（静态函数）
 ---@param rule table 派生规则
 ---@param context table 派生上下文
@@ -1382,29 +1412,6 @@ end
 ---@param has_delay boolean 是否是delay派生
 ---@return boolean 是否成功执行
 function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_type, targetNode, has_input, has_delay)
-    -- 辅助函数：检查解锁条件（hit + targetCmd 或 counterAtk + targetCmd 的情况）
-    local function check_unlock_conditions()
-        if not ConditionChecker.check_hit_unlock(rule, context) then
-            return false
-        end
-        if not ConditionChecker.check_counter_unlock(rule, context) then
-            return false
-        end
-        return true
-    end
-
-    -- 辅助函数：执行派生并重置解锁标志
-    local function execute_and_reset()
-        DeriveExecutor.execute(targetNode, rule, context, wrappered_id)
-        -- 执行成功后重置解锁标志
-        if rule.hit ~= nil then
-            context.hit_success = -1
-        end
-        if rule.counterAtk ~= nil then
-            context.counter_success = false
-        end
-    end
-
     -- ============================================================================
     -- 情况1：有delay_pending正在等待
     -- ============================================================================
@@ -1412,13 +1419,13 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
         -- 检查是否有非delay派生的输入要抢占
         if has_input and not has_delay then
             -- 检查解锁条件
-            if not check_unlock_conditions() then
+            if not DeriveRuleProcessor.check_unlock_conditions(rule, context) then
                 return false
             end
             -- 非delay派生抢占delay派生
             context:clear_delay_pending()
             context:clear_pre_input()
-            execute_and_reset()
+            DeriveRuleProcessor.execute_and_reset_unlock(targetNode, rule, context, wrappered_id)
             return true
         end
 
@@ -1444,7 +1451,7 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
     -- 使用规则引用比较，确保只有保存预输入的那个规则才能消费它
     if pre_input and pre_input.rule == rule then
         -- 检查解锁条件（预输入可能在命中之前记录，需要等待解锁）
-        if not check_unlock_conditions() then
+        if not DeriveRuleProcessor.check_unlock_conditions(rule, context) then
             return false -- 保留预输入，等待下一帧再检查
         end
 
@@ -1458,7 +1465,7 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
         else
             -- 预输入的派生是非delay类型，立即执行
             context:clear_pre_input()
-            execute_and_reset()
+            DeriveRuleProcessor.execute_and_reset_unlock(targetNode, rule, context, wrappered_id)
             return true
         end
     end
@@ -1468,7 +1475,7 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
     -- ============================================================================
     if has_input then
         -- 检查解锁条件
-        if not check_unlock_conditions() then
+        if not DeriveRuleProcessor.check_unlock_conditions(rule, context) then
             return false
         end
 
@@ -1478,7 +1485,7 @@ function DeriveRuleProcessor.try_execute(rule, context, wrappered_id, derive_typ
             return false -- 开始等待，还未执行
         else
             -- 非delay派生，立即执行
-            execute_and_reset()
+            DeriveRuleProcessor.execute_and_reset_unlock(targetNode, rule, context, wrappered_id)
             return true
         end
     end
@@ -1635,29 +1642,18 @@ local function process_delay_timeout()
             local pending = derive_context.delay_pending
             local rule = pending.rule
 
-            -- 检查解锁条件
-            if not ConditionChecker.check_hit_unlock(rule, derive_context) then
-                return -- 未解锁，继续等待（不清除 delay_pending）
-            end
-            if not ConditionChecker.check_counter_unlock(rule, derive_context) then
+            -- 检查解锁条件（复用静态函数）
+            if not DeriveRuleProcessor.check_unlock_conditions(rule, derive_context) then
                 return -- 未解锁，继续等待（不清除 delay_pending）
             end
 
-            -- 执行派生
-            DeriveExecutor.execute(
+            -- 执行派生并重置解锁标志（复用静态函数）
+            DeriveRuleProcessor.execute_and_reset_unlock(
                 pending.targetNode,
                 rule,
                 derive_context,
                 pending.wrappered_id
             )
-
-            -- 重置解锁标志
-            if rule.hit ~= nil then
-                derive_context.hit_success = -1
-            end
-            if rule.counterAtk ~= nil then
-                derive_context.counter_success = false
-            end
 
             derive_context:clear_delay_pending()
         end
