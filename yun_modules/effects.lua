@@ -14,6 +14,8 @@
 --
 --     vfx = {150, 210},              -- 视觉特效 {容器ID, 特效ID}（不受hitTrigger影响）
 --     force_release = false,         -- 是否强制释放特效（可选，默认false）
+--     loop_action = false,           -- 是否为循环动作特效（可选）
+--                                    -- true时：每个动作循环周期都会重新触发（帧数回绕时重置触发状态）
 --
 --     hit = {150, 210},              -- 命中位置特效（单次）或 {{150, 210}, {150, 211}} （多段）
 --     isMultiHit = false,            -- 是否多段命中（可选）
@@ -440,6 +442,9 @@ function EffectContext.new()
     self.last_motion = 0
     self.motion_bank = 0
 
+    -- 帧数追踪（用于检测循环动作的帧数回绕）
+    self.last_frame = 0
+
     -- 特效实例管理
     self.effect_instances = {}  -- 需要强制释放的特效实例
 
@@ -449,6 +454,10 @@ function EffectContext.new()
 
     -- 记录已触发的特效（防止重复触发）
     self.triggered_effects = {}  -- key: "motion_index", value: true
+
+    -- 循环动作规则追踪（只有使用了 loop_action 的规则才会被记录）
+    -- 结构: { [motion_id] = { [rule_index] = true } }
+    self.loop_action_triggers = nil  -- 惰性初始化，没有 loop_action 规则时为 nil
 
     return self
 end
@@ -462,6 +471,8 @@ function EffectContext:reset()
     self.triggered_effects = {}
     self.hit_cache = {}
     self.hit_count = 0
+    self.last_frame = 0
+    self.loop_action_triggers = nil  -- 重置循环动作追踪
     self:clear_hit_trigger_cache()  -- 清除命中触发缓存
 end
 
@@ -548,6 +559,43 @@ end
 -- 清除命中触发缓存
 function EffectContext:clear_hit_trigger_cache()
     self.hit_trigger_cache = {}
+end
+
+-- 注册循环动作规则（只有 loop_action=true 的规则才会调用此方法）
+function EffectContext:register_loop_action_rule(motion_id, rule_index)
+    -- 惰性初始化
+    if not self.loop_action_triggers then
+        self.loop_action_triggers = {}
+    end
+    if not self.loop_action_triggers[motion_id] then
+        self.loop_action_triggers[motion_id] = {}
+    end
+    self.loop_action_triggers[motion_id][rule_index] = true
+end
+
+-- 检测帧数回绕并重置循环动作规则的触发状态
+-- 只有存在 loop_action 规则时才会有实际开销
+function EffectContext:check_loop_action_reset(current_frame)
+    -- 没有 loop_action 规则，直接返回（零开销）
+    if not self.loop_action_triggers then
+        self.last_frame = current_frame
+        return
+    end
+
+    -- 检测帧数回绕（当前帧小于上一帧，说明动作循环了）
+    if current_frame < self.last_frame then
+        -- 只重置 loop_action 规则的触发状态
+        for motion_id, rules in pairs(self.loop_action_triggers) do
+            local motion_table = self.triggered_effects[motion_id]
+            if motion_table then
+                for rule_index, _ in pairs(rules) do
+                    motion_table[rule_index] = nil
+                end
+            end
+        end
+    end
+
+    self.last_frame = current_frame
 end
 
 -- 全局特效上下文实例
@@ -1367,6 +1415,11 @@ function EffectRuleProcessor.process(rule, context, motion_id, rule_index, curre
     -- 4. 标记为已触发
     context:mark_effect_triggered(motion_id, rule_index)
 
+    -- 5. 如果是循环动作规则，注册以便帧数回绕时重置
+    if rule.loop_action then
+        context:register_loop_action_rule(motion_id, rule_index)
+    end
+
     return true
 end
 
@@ -1475,6 +1528,9 @@ local function effect_wrapper()
 
     -- 更新动作历史
     effect_context:update_motion_history(motion_id, motion_bank)
+
+    -- 检测循环动作的帧数回绕（只有存在 loop_action 规则时才有开销）
+    effect_context:check_loop_action_reset(current_frame)
 
     -- 更新状态机
     effect_state_machine:update(weapon_type, motion_id, motion_bank, current_frame)
