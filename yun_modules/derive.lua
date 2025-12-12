@@ -1347,7 +1347,17 @@ function DeriveRuleProcessor.process(rule, context, wrappered_id)
     if not is_derivable then
         -- 【预输入阶段】：只记录输入，不执行
         if has_input then
-            context:save_pre_input(targetNode, rule, wrappered_id)
+            -- 检查是否应该保留现有预输入
+            -- 避免无方向限制的规则覆盖有方向限制的预输入
+            local existing_pre = context.pre_input_last
+            local should_save = true
+            if existing_pre and existing_pre.rule.tarLstickDir ~= nil and rule.tarLstickDir == nil then
+                -- 已有的预输入有方向限制，当前规则没有方向限制，不覆盖
+                should_save = false
+            end
+            if should_save then
+                context:save_pre_input(targetNode, rule, wrappered_id)
+            end
         end
         return false
     end
