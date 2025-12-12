@@ -234,25 +234,52 @@ end
 -- 使用字典结构支持动态移除
 effects.effectTable = {}
 effects._effectTableNextId = 1
+effects._effectTableToId = {}  -- 表引用到数字ID的映射（用于支持通过表释放）
 
--- 注册特效表
+-- 注册特效表（轮询安全）
+-- 多次传入同一个表会返回相同的ID
 ---@param effect_table table 特效表
 ---@return number|nil 返回注册的索引ID，失败返回nil
 function effects.push_effect_table(effect_table)
     if type(effect_table) == "table" then
+        -- 检查是否已经注册过（轮询安全）
+        if effects._effectTableToId[effect_table] then
+            return effects._effectTableToId[effect_table]
+        end
+
+        -- 创建新的注册
         local id = effects._effectTableNextId
         effects._effectTableNextId = effects._effectTableNextId + 1
         effects.effectTable[id] = effect_table
+        effects._effectTableToId[effect_table] = id
         return id
     end
     return nil
 end
 
--- 移除特效表
----@param id number 注册时返回的索引ID
+-- 移除特效表（轮询安全）
+-- 支持传入表引用或数字ID
+---@param id table|number 传入的表引用或注册时返回的索引ID
 ---@return boolean 是否成功移除
 function effects.pop_effect_table(id)
+    -- 如果传入的是表引用，查找对应的数字ID
+    if type(id) == "table" then
+        local numeric_id = effects._effectTableToId[id]
+        if numeric_id then
+            effects._effectTableToId[id] = nil
+            effects.effectTable[numeric_id] = nil
+            return true
+        end
+        return false
+    end
+
+    -- 数字ID方式
     if type(id) == "number" and effects.effectTable[id] ~= nil then
+        -- 同时清除表引用映射
+        local table_ref = effects.effectTable[id]
+        if table_ref then
+            effects._effectTableToId[table_ref] = nil
+        end
         effects.effectTable[id] = nil
         return true
     end

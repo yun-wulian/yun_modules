@@ -107,6 +107,7 @@ yun_modules.clear_effect_validity_cache = effects.clear_validity_cache
 -- 导出特效系统（状态机）
 yun_modules.effectTable = effects.effectTable
 yun_modules.push_effect_table = effects.push_effect_table
+yun_modules.pop_effect_table = effects.pop_effect_table
 yun_modules.on_action_status = effects.on_action_status  -- 攻击判定状态枚举
 
 -- 导出相机效果直接调用接口
@@ -118,8 +119,10 @@ yun_modules.get_active_camera_effects_count = effects.get_active_camera_effects_
 -- 导出派生相关函数
 yun_modules.deriveTable = derive.deriveTable
 yun_modules.push_derive_table = derive.push_derive_table
+yun_modules.pop_derive_table = derive.pop_derive_table
 yun_modules.hook_evaluate_post = derive.hook_evaluate_post
 yun_modules.push_evaluate_post_functions = derive.push_evaluate_post_functions
+yun_modules.pop_evaluate_post_functions = derive.pop_evaluate_post_functions
 
 -- 导出独立反击接口（Counter API）
 yun_modules.add_counter = derive.add_counter       -- 添加反击（返回ID）

@@ -256,10 +256,12 @@ local constant = require("yunwulian.yun_modules.constant")
 -- 派生表注册（使用字典结构支持动态移除）
 derive.deriveTable = {}
 derive._deriveTableNextId = 1
+derive._deriveTableToId = {}  -- 表引用到数字ID的映射（用于支持通过表释放）
 
 -- 钩子函数（使用字典结构支持动态移除）
 derive.hook_evaluate_post = {}
 derive._hookEvaluatePostNextId = 1
+derive._hookFuncToId = {}  -- 函数引用到数字ID的映射（用于支持通过函数释放）
 
 -- ============================================================================
 -- 独立反击系统（Counter API）
@@ -270,48 +272,100 @@ derive._counterNextId = 1
 -- 当前动作的活跃反击状态
 derive._active_counters = {}
 
--- 注册派生表
+-- 注册派生表（轮询安全）
+-- 多次传入同一个表会返回相同的ID
 ---@param derive_table table 派生表
 ---@return number|nil 返回注册的索引ID，失败返回nil
 function derive.push_derive_table(derive_table)
     if type(derive_table) == "table" then
+        -- 检查是否已经注册过（轮询安全）
+        if derive._deriveTableToId[derive_table] then
+            return derive._deriveTableToId[derive_table]
+        end
+
+        -- 创建新的注册
         local id = derive._deriveTableNextId
         derive._deriveTableNextId = derive._deriveTableNextId + 1
         derive.deriveTable[id] = derive_table
+        derive._deriveTableToId[derive_table] = id
         return id
     end
     return nil
 end
 
--- 移除派生表
----@param id number 注册时返回的索引ID
+-- 移除派生表（轮询安全）
+-- 支持传入表引用或数字ID
+---@param id table|number 传入的表引用或注册时返回的索引ID
 ---@return boolean 是否成功移除
 function derive.pop_derive_table(id)
+    -- 如果传入的是表引用，查找对应的数字ID
+    if type(id) == "table" then
+        local numeric_id = derive._deriveTableToId[id]
+        if numeric_id then
+            derive._deriveTableToId[id] = nil
+            derive.deriveTable[numeric_id] = nil
+            return true
+        end
+        return false
+    end
+
+    -- 数字ID方式
     if type(id) == "number" and derive.deriveTable[id] ~= nil then
+        -- 同时清除表引用映射
+        local table_ref = derive.deriveTable[id]
+        if table_ref then
+            derive._deriveTableToId[table_ref] = nil
+        end
         derive.deriveTable[id] = nil
         return true
     end
     return false
 end
 
--- 添加按键判定函数
+-- 添加按键判定函数（轮询安全）
+-- 多次传入同一个函数会返回相同的ID
 ---@param func function 函数
 ---@return number|nil 返回注册的索引ID，失败返回nil
 function derive.push_evaluate_post_functions(func)
     if type(func) == "function" then
+        -- 检查是否已经注册过（轮询安全）
+        if derive._hookFuncToId[func] then
+            return derive._hookFuncToId[func]
+        end
+
+        -- 创建新的注册
         local id = derive._hookEvaluatePostNextId
         derive._hookEvaluatePostNextId = derive._hookEvaluatePostNextId + 1
         derive.hook_evaluate_post[id] = func
+        derive._hookFuncToId[func] = id
         return id
     end
     return nil
 end
 
--- 移除按键判定函数
----@param id number 注册时返回的索引ID
+-- 移除按键判定函数（轮询安全）
+-- 支持传入函数引用或数字ID
+---@param id function|number 传入的函数引用或注册时返回的索引ID
 ---@return boolean 是否成功移除
 function derive.pop_evaluate_post_functions(id)
+    -- 如果传入的是函数引用，查找对应的数字ID
+    if type(id) == "function" then
+        local numeric_id = derive._hookFuncToId[id]
+        if numeric_id then
+            derive._hookFuncToId[id] = nil
+            derive.hook_evaluate_post[numeric_id] = nil
+            return true
+        end
+        return false
+    end
+
+    -- 数字ID方式
     if type(id) == "number" and derive.hook_evaluate_post[id] ~= nil then
+        -- 同时清除函数引用映射
+        local func_ref = derive.hook_evaluate_post[id]
+        if func_ref then
+            derive._hookFuncToId[func_ref] = nil
+        end
         derive.hook_evaluate_post[id] = nil
         return true
     end
