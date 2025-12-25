@@ -22,19 +22,31 @@ end
 local pre_hook_calc_total_affinity = function(args)
     local this = sdk.to_managed_object(args[2])
     if not this:isMasterPlayer() then
+        thread.get_hook_storage()["isMasterPlayer"] = false
         return sdk.PreHookResult.CALL_ORIGINAL
     end
 end
 
 local post_hook_calc_total_affinity = function(retval)
+    if thread.get_hook_storage()["isMasterPlayer"] == false then
+        return retval
+    end
     return core.hook_post_calc_total_affinity(retval)
 end
 
 local pre_hook_get_adjust_stun_attack = function(args)
+    local this = sdk.to_managed_object(args[2])
+    if not this:isMasterPlayer() then
+        return sdk.PreHookResult.CALL_ORIGINAL
+    end
     return core.hook_pre_get_adjust_stun_attack(args)
 end
 
 local pre_hook_slash_axe_get_adjust_stun_attack = function(args)
+    local this = sdk.to_managed_object(args[2])
+    if not this:isMasterPlayer() then
+        return sdk.PreHookResult.CALL_ORIGINAL
+    end
     return core.hook_pre_slash_axe_get_adjust_stun_attack(args)
 end
 
@@ -55,6 +67,10 @@ local post_hook_loading_update = function(retval)
 end
 
 local pre_hook_fsm_command_evaluate = function(args)
+    local storage = thread.get_hook_storage()
+    storage["commandbase"] = sdk.to_managed_object(args[2])
+    storage["commandarg"] = sdk.to_managed_object(args[3])
+    storage["cmdplayer"] = sdk.to_managed_object(args[2]):getPlayerBase(sdk.to_managed_object(args[3]))
     return core.hook_pre_fsm_command_evaluate(args)
 end
 
@@ -73,22 +89,27 @@ local post_hook_fsm_command_evaluate = function(retval)
 end
 
 local pre_hook_check_calc_damage = function(args)
+    local storage = thread.get_hook_storage()
+    storage["Player"] = sdk.to_managed_object(args[2])
     return core.hook_pre_check_calc_damage(args)
 end
 
 local post_hook_check_calc_damage = function(retval)
-    if not thread.get_hook_storage()["refPlayer"]:isMasterPlayer() then
+    if not thread.get_hook_storage()["Player"]:isMasterPlayer() then
         return retval
     end
     return derive.hook_post_check_calc_damage(retval)
 end
 
 local pre_hook_after_calc_damage = function(args)
+    if not sdk.to_managed_object(args[2]):isMasterPlayer() then return end
     local hitInfo = sdk.to_managed_object(args[4])
     derive.hook_pre_after_calc_damage(hitInfo)
 end
 
 local pre_hook_enemy_damage = function(args)
+    local from = sdk.to_managed_object(args[4]):get_AttackObject()
+    if not from.isMasterPlayer() then return end
     effects.hook_pre_enemy_damage(args)
 end
 
@@ -109,10 +130,18 @@ local post_hook_radial_blur_apply = function(retval)
 end
 
 local pre_hook_attack_work_activate = function(args)
+    local this = sdk.to_managed_object(args[2])
+    if core.master_player:getRSCController() ~= this:get_RSCCtrl() then
+        return
+    end
     effects.hook_pre_attack_work_activate(args)
 end
 
 local pre_hook_attack_work_destroy = function(args)
+    local this = sdk.to_managed_object(args[2])
+    if core.master_player:getRSCController() ~= this:get_RSCCtrl() then
+        return
+    end
     effects.hook_pre_attack_work_destroy(args)
 end
 
@@ -136,13 +165,13 @@ function hooks.enable()
     sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("calcTotalAttack"), pre_hook_clear, function(retval) return derive.hook_post_calc_total_attack(retval) end)
 
     -- 钩子：元素伤害倍率
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("getElementSharpnessAdjust"), pre_hook_clear, function(retval) return derive.hook_post_element_sharpness_adjust(retval) end)
+    sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("getElementSharpnessAdjust"), nil, function(retval) return derive.hook_post_element_sharpness_adjust(retval) end)
 
     -- 钩子：眩晕伤害倍率
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("getAdjustTotalStunAttack"), pre_hook_clear, function(retval) return derive.hook_post_adjust_total_stun_attack(retval) end)
+    sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("getAdjustTotalStunAttack"), nil, function(retval) return derive.hook_post_adjust_total_stun_attack(retval) end)
 
     -- 钩子：耐力伤害倍率
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("getAdjustTotalStaminaAttack"), pre_hook_clear, function(retval) return derive.hook_post_adjust_total_stamina_attack(retval) end)
+    sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("getAdjustTotalStaminaAttack"), nil, function(retval) return derive.hook_post_adjust_total_stamina_attack(retval) end)
 
     -- 钩子：加载屏幕检测
     sdk.hook(sdk.find_type_definition("snow.NowLoading"):get_method("update"), pre_hook_loading_update, post_hook_loading_update)
