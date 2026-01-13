@@ -131,7 +131,7 @@ end
 
 local pre_hook_attack_work_activate = function(args)
     local this = sdk.to_managed_object(args[2])
-    if core.master_player:getRSCController() ~= this:get_RSCCtrl() then
+    if core.master_player ~= nil and core.master_player:getRSCController() ~= this:get_RSCCtrl() then
         return
     end
     effects.hook_pre_attack_work_activate(args)
@@ -139,7 +139,7 @@ end
 
 local pre_hook_attack_work_destroy = function(args)
     local this = sdk.to_managed_object(args[2])
-    if core.master_player:getRSCController() ~= this:get_RSCCtrl() then
+    if core.master_player ~= nil and core.master_player:getRSCController() ~= this:get_RSCCtrl() then
         return
     end
     effects.hook_pre_attack_work_destroy(args)
