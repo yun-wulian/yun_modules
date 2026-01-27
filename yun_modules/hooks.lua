@@ -21,17 +21,33 @@ end
 
 local pre_hook_calc_total_affinity = function(args)
     local this = sdk.to_managed_object(args[2])
-    if not this:isMasterPlayer() then
-        thread.get_hook_storage()["isMasterPlayer"] = false
+    local storage = thread.get_hook_storage()
+    local is_master = this ~= nil and this:isMasterPlayer() == true
+    storage["isMasterPlayer_calcTotalAffinity"] = is_master
+
+    if not is_master then
         return sdk.PreHookResult.CALL_ORIGINAL
     end
 end
 
 local post_hook_calc_total_affinity = function(retval)
-    if thread.get_hook_storage()["isMasterPlayer"] == false then
+    if not thread.get_hook_storage()["isMasterPlayer_calcTotalAffinity"] then
         return retval
     end
     return core.hook_post_calc_total_affinity(retval)
+end
+
+local pre_hook_calc_total_attack = function(args)
+    local this = sdk.to_managed_object(args[2])
+    local storage = thread.get_hook_storage()
+    storage["isMasterPlayer_calcTotalAttack"] = this ~= nil and this:isMasterPlayer() == true
+end
+
+local post_hook_calc_total_attack = function(retval)
+    if not thread.get_hook_storage()["isMasterPlayer_calcTotalAttack"] then
+        return retval
+    end
+    return derive.hook_post_calc_total_attack(retval)
 end
 
 local pre_hook_get_adjust_stun_attack = function(args)
@@ -162,7 +178,7 @@ function hooks.enable()
     sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("calcTotalAffinity"), pre_hook_calc_total_affinity, post_hook_calc_total_affinity)
 
     -- 钩子：攻击控制
-    sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("calcTotalAttack"), pre_hook_clear, function(retval) return derive.hook_post_calc_total_attack(retval) end)
+    sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("calcTotalAttack"), pre_hook_calc_total_attack, post_hook_calc_total_attack)
 
     -- 钩子：元素伤害倍率
     sdk.hook(sdk.find_type_definition("snow.player.PlayerQuestBase"):get_method("getElementSharpnessAdjust"), nil, function(retval) return derive.hook_post_element_sharpness_adjust(retval) end)
