@@ -125,7 +125,7 @@ end
 
 local pre_hook_enemy_damage = function(args)
     local from = sdk.to_managed_object(args[4]):get_AttackObject()
-    if not from:isMasterPlayer() then return end
+    if not from or not from:isMasterPlayer() then return end
     effects.hook_pre_enemy_damage(args)
 end
 
