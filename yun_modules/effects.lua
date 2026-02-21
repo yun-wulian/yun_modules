@@ -403,7 +403,7 @@ end
 function effects.set_effect(container, efx, sync)
     if not core.master_player or not core.master_player:isMasterPlayer() then return false end
     if not effects.is_effect_exists(container, efx) then return false end
-    pcall(core.master_player:setItemEffect(container, efx))
+    pcall(function() core.master_player:setItemEffect(container, efx) end)
     -- 同步给队友（默认同步）
     if sync ~= false then
         send_effect_sync_packet(container, efx)
