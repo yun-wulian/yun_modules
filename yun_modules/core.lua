@@ -49,7 +49,8 @@ core._motion_value_id = nil                -- 动作值ID
 core._slash_axe_motion_value_id = nil      -- 斩击斧动作值ID
 
 -- 战斗交互
-core._last_attacker_enemy = nil            -- 上一次攻击玩家的怪物实例
+core._last_attacker_enemy = nil            -- 上一次攻击玩家的怪物实例（仅怪物本体攻击）
+core._last_attacker_enemy_include_shell = nil -- 上一次攻击玩家的怪物实例（包含怪物投射体攻击）
 
 -- 攻击/会心率覆盖
 core.player_atk = nil           -- 玩家攻击力
@@ -298,20 +299,22 @@ function core.hook_pre_check_calc_damage(args)
     local damageData = hitInfo:get_AttackData()
     storage["damageData"] = damageData
 
-    -- 提取攻击者怪物实例（过滤掉 shell）
+    -- 提取攻击者怪物实例；默认只记录怪物本体攻击，includeShell 缓存额外包含投射体攻击
     local attackObject = hitInfo:get_AttackObject()
     if attackObject and damageData then
         local ownerType = damageData:get_OwnerType()
+        local enemyCharacter = attackObject:getComponent(
+            sdk.typeof("snow.enemy.EnemyCharacterBase"))
 
         if ownerType == 1 then  -- 1 = Enemy (真实怪物)
-            local enemyCharacter = attackObject:getComponent(
-                sdk.typeof("snow.enemy.EnemyCharacterBase"))
             if enemyCharacter then
                 storage["attackerEnemy"] = enemyCharacter
                 core._last_attacker_enemy = enemyCharacter
+                core._last_attacker_enemy_include_shell = enemyCharacter
             end
         elseif ownerType == 2 then  -- 2 = EnemyShell (远程攻击)
-            -- 清空攻击者，避免反击错误的怪物
+            core._last_attacker_enemy_include_shell = enemyCharacter
+            -- 清空默认攻击者，避免旧反击逻辑把远程攻击当作近身攻击
             storage["attackerEnemy"] = nil
             core._last_attacker_enemy = nil
         end
@@ -330,8 +333,12 @@ end
 -- ============================================================================
 
 -- 获取上一次攻击玩家的怪物实例
+---@param includeShell boolean|nil 是否包含怪物投射体攻击
 ---@return any|nil 怪物实例，如果没有则返回nil
-function core.get_last_attacker_enemy()
+function core.get_last_attacker_enemy(includeShell)
+    if includeShell == true then
+        return core._last_attacker_enemy_include_shell
+    end
     return core._last_attacker_enemy
 end
 
