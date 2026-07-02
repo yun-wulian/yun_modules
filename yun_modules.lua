@@ -57,6 +57,7 @@ yun_modules.set_r_vital = player.set_r_vital
 yun_modules.get_selected_book = player.get_selected_book
 yun_modules.get_switch_skill = player.get_switch_skill
 yun_modules.set_hurtbox_scale = player.set_hurtbox_scale
+yun_modules.set_hurtbox_scale_override = player.set_hurtbox_scale_override
 yun_modules.on_weapon_change = player.on_weapon_change
 yun_modules.get_pre_weapon_type = core.get_pre_weapon_type
 

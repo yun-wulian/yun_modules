@@ -254,6 +254,8 @@ local _hurtbox_current_weapon_type = nil
 local _player_hurtbox = nil
 local _hurtbox_original_radius = nil
 local _hurtbox_original_extent = nil
+local _hurtbox_scale_overrides = {}
+local _hurtbox_is_scaled = false
 
 -- 获取组件的辅助函数
 local function get_component(game_object, type_name)
@@ -278,6 +280,18 @@ local function get_player_hurtbox()
     return nil
 end
 
+local function get_hurtbox_override_scale()
+    local override_scale = nil
+    for _, scale in pairs(_hurtbox_scale_overrides) do
+        if type(scale) == "number" and scale ~= 1.0 then
+            if override_scale == nil or scale > override_scale then
+                override_scale = scale
+            end
+        end
+    end
+    return override_scale
+end
+
 -- 修改碰撞箱大小
 local function modify_hurtbox_size(collidable, multiplier)
     if not collidable then return false end
@@ -294,6 +308,7 @@ local function modify_hurtbox_size(collidable, multiplier)
             _hurtbox_original_radius = current_radius
         end
         shape:set_Radius(_hurtbox_original_radius * multiplier)
+        _hurtbox_is_scaled = multiplier ~= 1.0
         return true
 
     elseif shape_type == 5 then -- Box
@@ -306,6 +321,7 @@ local function modify_hurtbox_size(collidable, multiplier)
             _hurtbox_original_extent.z * multiplier
         )
         shape:set_Extent(new_extent)
+        _hurtbox_is_scaled = multiplier ~= 1.0
         return true
     end
 
@@ -318,15 +334,20 @@ function player._update_hurtbox()
 
     -- 检测武器切换，清理内部状态
     if core._wep_type ~= _hurtbox_current_weapon_type then
+        if _player_hurtbox and _hurtbox_is_scaled then
+            modify_hurtbox_size(_player_hurtbox, 1.0)
+        end
         _hurtbox_current_weapon_type = core._wep_type
         _player_hurtbox = nil
         _hurtbox_original_radius = nil
         _hurtbox_original_extent = nil
+        _hurtbox_is_scaled = false
     end
 
-    -- 获取当前武器的规则
+    -- 获取当前武器的规则和状态覆盖
+    local override_scale = get_hurtbox_override_scale()
     local current_rules = _hurtbox_scale_rules[_hurtbox_current_weapon_type]
-    if not current_rules then return end
+    if not override_scale and not current_rules and not _hurtbox_is_scaled then return end
 
     -- 获取或更新碰撞箱引用
     if not _player_hurtbox then
@@ -339,6 +360,17 @@ function player._update_hurtbox()
         _player_hurtbox = nil
         _hurtbox_original_radius = nil
         _hurtbox_original_extent = nil
+        _hurtbox_is_scaled = false
+        return
+    end
+
+    if override_scale then
+        modify_hurtbox_size(_player_hurtbox, override_scale)
+        return
+    end
+
+    if not current_rules then
+        modify_hurtbox_size(_player_hurtbox, 1.0)
         return
     end
 
@@ -404,6 +436,22 @@ function player.set_hurtbox_scale(action_id, scale_multiplier, frame_range)
             frame_range = frame_range
         }
     end
+end
+
+---@param key any 覆盖来源标识
+---@param scale_multiplier number|nil 缩放倍率（nil或1.0表示移除覆盖）
+function player.set_hurtbox_scale_override(key, scale_multiplier)
+    if key == nil then return end
+
+    _hurtbox_initialized = true
+
+    if scale_multiplier == nil or scale_multiplier == 1.0 then
+        _hurtbox_scale_overrides[key] = nil
+    else
+        _hurtbox_scale_overrides[key] = scale_multiplier
+    end
+
+    player._update_hurtbox()
 end
 
 return player
