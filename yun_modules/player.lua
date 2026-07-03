@@ -328,6 +328,29 @@ local function modify_hurtbox_size(collidable, multiplier)
     return false
 end
 
+local function get_action_hurtbox_scale(current_rules)
+    if not current_rules then return nil end
+
+    local rule = current_rules[core._action_id]
+    if not rule then return nil end
+
+    if type(rule) == "number" then
+        return rule
+    end
+
+    if rule.frame_range then
+        local current_frame = core._action_frame
+        local start_frame = rule.frame_range[1]
+        local end_frame = rule.frame_range[2]
+
+        if not current_frame or current_frame < start_frame or current_frame > end_frame then
+            return nil
+        end
+    end
+
+    return rule.scale or 1.0
+end
+
 -- 每帧更新碰撞箱（内部函数，由主循环调用）
 function player._update_hurtbox()
     if not _hurtbox_initialized then return end
@@ -364,51 +387,20 @@ function player._update_hurtbox()
         return
     end
 
+    local action_scale = get_action_hurtbox_scale(current_rules)
+    if action_scale then
+        modify_hurtbox_size(_player_hurtbox, action_scale)
+        return
+    end
+
     if override_scale then
         modify_hurtbox_size(_player_hurtbox, override_scale)
         return
     end
 
-    if not current_rules then
-        modify_hurtbox_size(_player_hurtbox, 1.0)
-        return
-    end
-
-    -- 根据当前动作ID查找规则并应用
-    local current_action_id = core._action_id
-    local rule = current_rules[current_action_id]
-
-    -- 如果没有规则，恢复默认大小
-    if not rule then
-        modify_hurtbox_size(_player_hurtbox, 1.0)
-        return
-    end
-
-    -- 获取缩放倍率和帧范围
-    local scale = 1.0
-    if type(rule) == "number" then
-        -- 兼容旧版本：直接存储的是倍率
-        scale = rule
-    else
-        -- 新版本：rule 是一个表
-        scale = rule.scale or 1.0
-
-        -- 检查帧数范围
-        if rule.frame_range then
-            local current_frame = core._action_frame
-            local start_frame = rule.frame_range[1]
-            local end_frame = rule.frame_range[2]
-
-            -- 如果当前帧不在范围内，恢复默认大小
-            if current_frame < start_frame or current_frame > end_frame then
-                modify_hurtbox_size(_player_hurtbox, 1.0)
-                return
-            end
-        end
-    end
-
-    modify_hurtbox_size(_player_hurtbox, scale)
+    modify_hurtbox_size(_player_hurtbox, 1.0)
 end
+
 
 -- 为特定动作设置碰撞箱缩放倍率
 ---@param action_id number 动作ID
