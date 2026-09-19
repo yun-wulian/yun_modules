@@ -407,7 +407,7 @@ end
 ---@param counter_count number 可抵挡次数
 ---@param frame_range table {开始帧, 结束帧}
 ---@param callback function|nil callback(context)：本次受击的 player、enemy、position、owner_type
----@param scope table|nil 可选限制：weapon_type、bank_id、owner_type
+---@param scope table|nil 可选限制：weapon_type、bank_id、owner_type、enemy_body_only（仅怪物本体命中）
 ---@return number 返回注册的ID，用于后续移除
 function derive.add_counter(action_id, counter_count, frame_range, callback, scope)
     local id = derive._counterNextId
@@ -442,7 +442,7 @@ end
 ---@param counter_count number 可抵挡次数
 ---@param frame_range table {开始帧, 结束帧}
 ---@param callback function|nil callback(context)：本次受击的 player、enemy、position、owner_type
----@param scope table|nil 可选限制：weapon_type、bank_id、owner_type
+---@param scope table|nil 可选限制：weapon_type、bank_id、owner_type、enemy_body_only（仅怪物本体命中）
 function derive.set_counter(key, action_id, counter_count, frame_range, callback, scope)
     -- 使用字符串key作为ID，直接覆盖
     derive.counter_registry[key] = {
@@ -781,6 +781,7 @@ local function counter_matches_scope(scope, context)
     return (scope.weapon_type == nil or scope.weapon_type == context.player:get_field("_playerWeaponType"))
         and (scope.bank_id == nil or scope.bank_id == core._action_bank_id)
         and (scope.owner_type == nil or scope.owner_type == context.owner_type)
+        and (not scope.enemy_body_only or context.enemy ~= nil)
 end
 
 local function process_counter_damage(context)
