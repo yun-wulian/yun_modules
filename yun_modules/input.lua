@@ -110,23 +110,24 @@ end
 
 -- 检查摇杆方向（基于玩家，仅4方向）
 ---@param direction number 方向
+---@param player_angle number|nil 基准朝向（弧度），默认使用角色目标朝向
 ---@return boolean 是否匹配方向
-function input.check_lstick_dir_for_player_only_quad(direction)
+function input.check_lstick_dir_for_player_only_quad(direction, player_angle)
     if not input.is_push_lstick() then return false end
-    local player_angle = core.master_player:get_RefAngleCtrl():get_field("_targetAngle")
+    player_angle = player_angle or core.master_player:get_RefAngleCtrl():get_field("_targetAngle")
     local input_angle = core.master_player:get_RefPlayerInput():getHormdirLstick()
 
     local delta_angle_sin = math.sin(input_angle - player_angle)
     local delta_angle_cos = math.cos(input_angle - player_angle)
 
     if direction == core.direction.Down then
-        if delta_angle_sin > math.sin(math.rad(-45)) and delta_angle_sin < math.sin(math.rad(45)) and delta_angle_cos < 0 then return true end
+        return math.abs(delta_angle_sin) <= math.abs(delta_angle_cos) and delta_angle_cos < 0
     elseif direction == core.direction.Up then
-        if delta_angle_sin > math.sin(math.rad(-45)) and delta_angle_sin < math.sin(math.rad(45)) and delta_angle_cos > 0 then return true end
+        return math.abs(delta_angle_sin) <= math.abs(delta_angle_cos) and delta_angle_cos >= 0
     elseif direction == core.direction.Right then
-        if delta_angle_cos > math.sin(math.rad(-45)) and delta_angle_cos < math.sin(math.rad(45)) and delta_angle_sin < 0 then return true end
+        return math.abs(delta_angle_sin) > math.abs(delta_angle_cos) and delta_angle_sin < 0
     elseif direction == core.direction.Left then
-        if delta_angle_cos > math.sin(math.rad(-45)) and delta_angle_cos < math.sin(math.rad(45)) and delta_angle_sin > 0 then return true end
+        return math.abs(delta_angle_sin) > math.abs(delta_angle_cos) and delta_angle_sin >= 0
     end
 
     return false

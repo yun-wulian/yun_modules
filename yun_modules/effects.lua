@@ -151,10 +151,19 @@
 --     currentNodeId = 0x12345678,    -- 当前节点ID限制（可选）
 --     preActionId = 123,             -- 前序动作ID限制（可选）
 --     frame = 0,                     -- 帧数限制（可选）
+--     startOffset = 0,               -- 相对判定开始帧的偏移：负数提前，正数延后
+--     endOffset = 0,                 -- 相对判定结束帧的偏移：负数提前，正数延后
 --     specialCondition = function() return true end,  -- 自定义条件（可选）
 --     vfx = {150, 300},              -- 视觉特效（攻击判定期间显示，结束时自动回收）
 --     force_release = true,          -- 默认为true，设为false则不回收
 -- }
+--
+-- 偏移单位为判定的浮点帧数。不填或均为0时，保持原来的 activate/destroy 行为。
+-- 偏移规则在实际触发特效时检查条件，frame 仍是条件限制，不是偏移量。
+-- 例如 startOffset=-3, endOffset=5：提前3帧出现，延后5帧回收。
+-- 提前开始最早到判定初始化；偏移后的区间为空或已错过时不播放。
+-- 动作切换、帧回绕、判定提前取消会清理偏移特效。延后回收不跨动作。
+-- 无限判定/IgnoreEndDelay 无法预测结束，负 endOffset 不生效，正值从实际结束计时。
 --
 -- 示例：
 -- local effect_table = {
@@ -669,6 +678,9 @@ function AttackActiveEffectManager.new()
     -- key: attack_work实例的内存地址
     -- value: { effect_instances = {}, weapon_type = number }
     self.active_attack_effects = {}
+    self.timed_attack_effects = {}
+    self.tails = {}
+    self.update_serial = 0
 
     return self
 end
@@ -678,11 +690,11 @@ end
 ---@return table|nil 特效规则列表
 function AttackActiveEffectManager:find_attack_active_rules(weapon_type)
     -- 使用pairs支持字典结构
-    for _, sub_effect_table in pairs(effects.effectTable) do
+    for table_id, sub_effect_table in pairs(effects.effectTable) do
         if sub_effect_table[weapon_type] then
             local weapon_table = sub_effect_table[weapon_type]
             if weapon_table[effects.on_action_status.AttackActive] then
-                return weapon_table[effects.on_action_status.AttackActive]
+                return weapon_table[effects.on_action_status.AttackActive], table_id
             end
         end
     end
@@ -693,7 +705,8 @@ end
 ---@param rule table 特效规则
 ---@param current_frame number 当前帧数
 ---@return boolean 是否满足条件
-function AttackActiveEffectManager:check_rule_conditions(rule, current_frame)
+function AttackActiveEffectManager:check_rule_conditions(rule, current_frame, context)
+    context = context or core
     -- 1. 检查特殊条件
     if rule.specialCondition then
         local success, result = pcall(rule.specialCondition)
@@ -708,7 +721,7 @@ function AttackActiveEffectManager:check_rule_conditions(rule, current_frame)
         if type(currentNodeId) == "table" then
             local matched = false
             for _, node_id in ipairs(currentNodeId) do
-                if node_id == core._current_node then
+                if node_id == context._current_node then
                     matched = true
                     break
                 end
@@ -717,7 +730,7 @@ function AttackActiveEffectManager:check_rule_conditions(rule, current_frame)
                 return false
             end
         else
-            if core._current_node ~= currentNodeId then
+            if context._current_node ~= currentNodeId then
                 return false
             end
         end
@@ -729,7 +742,7 @@ function AttackActiveEffectManager:check_rule_conditions(rule, current_frame)
         if type(preActionId) == "table" then
             local matched = false
             for _, action_id in ipairs(preActionId) do
-                if action_id == core._pre_action_id then
+                if action_id == context._pre_action_id then
                     matched = true
                     break
                 end
@@ -738,7 +751,7 @@ function AttackActiveEffectManager:check_rule_conditions(rule, current_frame)
                 return false
             end
         else
-            if preActionId ~= core._pre_action_id then
+            if preActionId ~= context._pre_action_id then
                 return false
             end
         end
@@ -750,7 +763,7 @@ function AttackActiveEffectManager:check_rule_conditions(rule, current_frame)
         if type(actionId) == "table" then
             local matched = false
             for _, act_id in ipairs(actionId) do
-                if act_id == core._action_id then
+                if act_id == context._action_id then
                     matched = true
                     break
                 end
@@ -759,7 +772,7 @@ function AttackActiveEffectManager:check_rule_conditions(rule, current_frame)
                 return false
             end
         else
-            if actionId ~= core._action_id then
+            if actionId ~= context._action_id then
                 return false
             end
         end
@@ -782,11 +795,188 @@ function AttackActiveEffectManager:check_rule_conditions(rule, current_frame)
     return true
 end
 
--- 检查attack_work是否已处理过
----@param attack_work_id number attack_work的内存地址
----@return boolean 是否已处理
-function AttackActiveEffectManager:is_attack_work_processed(attack_work_id)
-    return self.active_attack_effects[attack_work_id] ~= nil
+local function attack_offset(rule, name)
+    local value = rule[name]
+    if value == nil then return 0 end
+    assert(type(value) == "number" and value == value and math.abs(value) < math.huge,
+        "AttackActive." .. name .. " must be a finite number")
+    return value
+end
+
+local function has_attack_offset(rule)
+    return attack_offset(rule, "startOffset") ~= 0 or attack_offset(rule, "endOffset") ~= 0
+end
+
+local function play_attack_effect(rule)
+    local instance
+    if rule.vfx and type(rule.vfx) == "table" and #rule.vfx >= 2 then
+        if rule.force_release ~= false then
+            instance = effects.set_effect_with_instance(rule.vfx[1], rule.vfx[2])
+        else
+            effects.set_effect(rule.vfx[1], rule.vfx[2])
+        end
+    end
+    if rule.camera_vibration then
+        local index = rule.camera_vibration.index or rule.camera_vibration[1]
+        local priority = rule.camera_vibration.priority or rule.camera_vibration[2] or 0
+        if index then effects.set_camera_vibration(index, priority) end
+    end
+    if rule.pad_vibration then
+        local id = rule.pad_vibration.id or rule.pad_vibration[1]
+        local is_loop = rule.pad_vibration.is_loop or rule.pad_vibration[2] or false
+        if id then effects.set_pad_vibration(id, is_loop) end
+    end
+    return instance
+end
+
+local function finish_attack_effect(entry)
+    if entry.instance then
+        entry.instance:finishAll()
+        entry.instance:force_release()
+        entry.instance = nil
+    end
+    entry.finished = true
+end
+
+local function clear_timed_attack(record)
+    for _, entry in ipairs(record.entries) do finish_attack_effect(entry) end
+end
+
+local function attack_end_frame(work)
+    if (work:get_HitData():get_HitAttr() & 0x100) ~= 0 then return nil end
+    local frame = work:get_TotalFrame()
+    if frame >= 0 then return frame end
+end
+
+function AttackActiveEffectManager:on_attack_initialize(work)
+    local id = work:get_address()
+    local previous = self.timed_attack_effects[id]
+    if previous then clear_timed_attack(previous) end
+    self.timed_attack_effects[id] = nil
+    local rules, table_id = self:find_attack_active_rules(core._wep_type)
+    if not rules then return end
+
+    local entries = {}
+    for _, rule in ipairs(rules) do
+        if has_attack_offset(rule) then
+            entries[#entries + 1] = {
+                rule = rule,
+                start_offset = attack_offset(rule, "startOffset"),
+                end_offset = attack_offset(rule, "endOffset"),
+            }
+        end
+    end
+    if #entries == 0 then return end
+    local owner = core.master_player
+    local layer = owner:getMotionLayer(0)
+    self.timed_attack_effects[id] = {
+        work = work, owner = owner, entries = entries, table_id = table_id,
+        weapon_type = core._wep_type,
+        start_frame = work:get_StartDelay(),
+        layer_index = work:get_RefMotionLayerIndex(),
+        motion_id = layer:get_MotionID(), bank_id = layer:get_MotionBankID(),
+    }
+end
+
+-- 条件读当前动画层，避免判定先于 PlayerMotionControl.lateUpdate 时读到上一招。
+function AttackActiveEffectManager:update_timed_attack(record, timer, end_frame, activated)
+    if record.owner ~= core.master_player or core.is_loading_visiable
+        or record.weapon_type ~= core._wep_type or not effects.effectTable[record.table_id] then
+        clear_timed_attack(record)
+        return false
+    end
+    local layer = record.owner:getMotionLayer(0)
+    local frame = layer:get_Frame()
+    -- initialize 时动作 ID 已更新，但帧数可能尚未从上一招重置；在首次判定更新建立基准。
+    if layer:get_MotionID() ~= record.motion_id or layer:get_MotionBankID() ~= record.bank_id
+        or (record.last_frame and frame < record.last_frame) then
+        clear_timed_attack(record)
+        return false
+    end
+    record.last_frame = frame
+    local pending = false
+    for _, entry in ipairs(record.entries) do
+        if not entry.finished then
+            local stop = end_frame and end_frame + entry.end_offset
+            if stop and timer >= stop then
+                finish_attack_effect(entry)
+            elseif not entry.started and ((entry.start_offset == 0 and activated)
+                or (entry.start_offset ~= 0 and timer >= math.max(0, record.start_frame + entry.start_offset))) then
+                entry.started = true
+                local context = {
+                    _action_id = layer:get_MotionID(),
+                    _pre_action_id = layer:get_PrevMotionID(),
+                    _current_node = core.mPlBHVT and core.mPlBHVT:getCurrentNodeID(0),
+                }
+                if self:check_rule_conditions(entry.rule, frame, context) then
+                    entry.instance = play_attack_effect(entry.rule)
+                else
+                    entry.finished = true
+                end
+            end
+            pending = pending or not entry.finished
+        end
+    end
+    return pending
+end
+
+function AttackActiveEffectManager:update_timed_attacks(rsc)
+    -- 尾段脱离 AttackWork，地址被下一段判定复用也不会覆盖已有特效。
+    for i = #self.tails, 1, -1 do
+        local record = self.tails[i]
+        if record.destroy_serial ~= self.update_serial then
+            if record.layer_index >= 0 then
+                local frame = record.owner:getMotionLayer(record.layer_index):get_Frame()
+                if frame < record.tail_frame then
+                    clear_timed_attack(record)
+                    table.remove(self.tails, i)
+                    goto continue_tail
+                end
+                record.timer = record.timer + frame - record.tail_frame
+                record.tail_frame = frame
+            else
+                local motion = rsc:get_Motion()
+                if motion:get_PlayState() == 0 then
+                    record.timer = record.timer + rsc:get_DeltaTime() * motion:get_PlaySpeed() * motion:get_SecondaryPlaySpeed()
+                end
+            end
+        end
+        if not self:update_timed_attack(record, record.timer, record.end_frame, false) then
+            table.remove(self.tails, i)
+        end
+        ::continue_tail::
+    end
+    for id, record in pairs(self.timed_attack_effects) do
+        if not self:update_timed_attack(record, record.work:get_Timer(), attack_end_frame(record.work), false) then
+            self.timed_attack_effects[id] = nil
+        end
+    end
+end
+
+function AttackActiveEffectManager:destroy_timed_attack(work)
+    local id = work:get_address()
+    local record = self.timed_attack_effects[id]
+    if not record then return end
+    self.timed_attack_effects[id] = nil
+    local timer = work:get_Timer()
+    local end_frame = attack_end_frame(work)
+    if end_frame and timer < end_frame then
+        clear_timed_attack(record)
+        return
+    end
+    for _, entry in ipairs(record.entries) do
+        if entry.end_offset <= 0 then finish_attack_effect(entry) end
+    end
+    record.end_frame = end_frame or timer
+    record.timer = timer
+    record.work = nil
+    record.destroy_serial = self.update_serial
+    if record.layer_index >= 0 then
+        record.tail_frame = record.owner:getMotionLayer(record.layer_index):get_Frame()
+    end
+    if self:update_timed_attack(record, timer, record.end_frame, false) then
+        self.tails[#self.tails + 1] = record
+    end
 end
 
 -- 攻击判定激活时触发特效（首次activate调用时触发）
@@ -797,12 +987,6 @@ function AttackActiveEffectManager:on_attack_activate(attack_work, weapon_type)
         return
     end
 
-    -- 查找匹配的规则
-    local rules = self:find_attack_active_rules(weapon_type)
-    if not rules then
-        return
-    end
-
     -- 获取attack_work的唯一标识（内存地址）
     local attack_work_id = attack_work:get_address()
 
@@ -810,6 +994,9 @@ function AttackActiveEffectManager:on_attack_activate(attack_work, weapon_type)
     if self.active_attack_effects[attack_work_id] then
         return
     end
+
+    local rules = self:find_attack_active_rules(weapon_type)
+    if not rules then return end
 
     -- 获取当前帧数
     local current_frame = math.floor(core._action_frame or 0)
@@ -822,50 +1009,15 @@ function AttackActiveEffectManager:on_attack_activate(attack_work, weapon_type)
 
     -- 遍历规则，生成特效
     for rule_index, rule in ipairs(rules) do
+        if has_attack_offset(rule) then goto continue end
         -- 使用条件检查器检查所有条件
         if not self:check_rule_conditions(rule, current_frame) then
             goto continue
         end
 
-        -- 生成视觉特效
-        if rule.vfx and type(rule.vfx) == "table" and #rule.vfx >= 2 then
-            local force_release = rule.force_release
-            -- 默认为true，因为攻击判定特效需要在结束时回收
-            if force_release == nil then
-                force_release = true
-            end
-
-            if force_release then
-                -- 使用公开 API 获取实例，以便后续回收（自动同步）
-                local instance = effects.set_effect_with_instance(rule.vfx[1], rule.vfx[2])
-                if instance then
-                    table.insert(effect_data.effect_instances, {
-                        instance = instance,
-                        rule_index = rule_index
-                    })
-                end
-            else
-                -- 不需要回收的特效，使用公开 API（自动同步）
-                effects.set_effect(rule.vfx[1], rule.vfx[2])
-            end
-        end
-
-        -- 触发相机震动
-        if rule.camera_vibration then
-            local index = rule.camera_vibration.index or rule.camera_vibration[1]
-            local priority = rule.camera_vibration.priority or rule.camera_vibration[2] or 0
-            if index then
-                effects.set_camera_vibration(index, priority)
-            end
-        end
-
-        -- 触发手柄震动
-        if rule.pad_vibration then
-            local id = rule.pad_vibration.id or rule.pad_vibration[1]
-            local is_loop = rule.pad_vibration.is_loop or rule.pad_vibration[2] or false
-            if id then
-                effects.set_pad_vibration(id, is_loop)
-            end
+        local instance = play_attack_effect(rule)
+        if instance then
+            table.insert(effect_data.effect_instances, { instance = instance, rule_index = rule_index })
         end
 
         ::continue::
@@ -918,10 +1070,25 @@ function AttackActiveEffectManager:clear_all()
         end
     end
     self.active_attack_effects = {}
+    for _, record in pairs(self.timed_attack_effects) do clear_timed_attack(record) end
+    for _, record in ipairs(self.tails) do clear_timed_attack(record) end
+    self.timed_attack_effects = {}
+    self.tails = {}
 end
 
 -- 全局攻击判定特效管理器实例
 local attack_active_effect_manager = AttackActiveEffectManager.new()
+
+function effects.clear_attack_effects()
+    attack_active_effect_manager:clear_all()
+end
+
+function effects.update_attack_effect_lifecycle()
+    if attack_active_effect_manager.owner ~= core.master_player or core.is_loading_visiable then
+        effects.clear_attack_effects()
+        attack_active_effect_manager.owner = core.master_player
+    end
+end
 
 -- ============================================================================
 -- 相机效果管理器 - 管理持续的相机效果（FOV、偏移、径向模糊等）
@@ -1791,53 +1958,61 @@ function effects.hook_pre_radial_blur_apply()
     is_org_blur_enabled = nil
 end
 
--- 钩子：攻击判定激活（攻击判定产生时触发，会持续调用）
----@param args table 钩子参数
+-- 只处理主玩家自己的 RSC 判定。
+local function master_attack_work(args)
+    effects.update_attack_effect_lifecycle()
+    if not core.master_player or core.is_loading_visiable then return nil end
+    local work = sdk.to_managed_object(args[2])
+    if work and work:get_RSCCtrl() == core.master_player:getRSCController() then return work end
+end
+
+function effects.hook_pre_attack_work_initialize(args)
+    thread.get_hook_storage().attack_effect_work = master_attack_work(args)
+end
+
+function effects.hook_post_attack_work_initialize(retval)
+    local work = thread.get_hook_storage().attack_effect_work
+    if work then attack_active_effect_manager:on_attack_initialize(work) end
+    return retval
+end
+
+function effects.hook_pre_update_attack_works(args)
+    effects.update_attack_effect_lifecycle()
+    local rsc = sdk.to_managed_object(args[2])
+    local is_master = core.master_player and not core.is_loading_visiable
+        and rsc == core.master_player:getRSCController()
+    thread.get_hook_storage().attack_effect_rsc = is_master and rsc or nil
+    if is_master then
+        attack_active_effect_manager.update_serial = attack_active_effect_manager.update_serial + 1
+    end
+end
+
+function effects.hook_post_update_attack_works(retval)
+    local rsc = thread.get_hook_storage().attack_effect_rsc
+    if rsc then attack_active_effect_manager:update_timed_attacks(rsc) end
+    return retval
+end
+
 function effects.hook_pre_attack_work_activate(args)
-    if not core.master_player or not core.master_player:isMasterPlayer() then return end
-
-    local attack_work = sdk.to_managed_object(args[2])
-    if not attack_work then return end
-
-    -- 获取attack_work的唯一标识（内存地址）
-    local attack_work_id = attack_work:get_address()
-
-    -- 检查是否已经处理过这个attack_work（activate会持续调用）
-    if attack_active_effect_manager:is_attack_work_processed(attack_work_id) then
-        return
+    local work = master_attack_work(args)
+    if not work then return end
+    local id = work:get_address()
+    local record = attack_active_effect_manager.timed_attack_effects[id]
+    if record and not attack_active_effect_manager:update_timed_attack(record, work:get_Timer(), attack_end_frame(work), true) then
+        attack_active_effect_manager.timed_attack_effects[id] = nil
     end
-
-    -- 获取attack_work的RSCController
-    local attack_rsc_ctrl = attack_work:get_RSCCtrl()
-    if not attack_rsc_ctrl then return end
-
-    -- 获取master_player的RSCController（通过组件获取方式更可靠）
-    local master_game_object = core.master_player:get_GameObject()
-    if not master_game_object then return end
-
-    local master_rsc_ctrl = master_game_object:call("getComponent(System.Type)", sdk.typeof("snow.RSCController"))
-    if not master_rsc_ctrl then return end
-
-    -- 比较地址来判断是否属于同一个RSCController
-    if attack_rsc_ctrl ~= master_rsc_ctrl then
-        return  -- 不是master_player的攻击判定，跳过
-    end
-
-    -- 获取武器类型
-    local weapon_type = core._wep_type
-
-    -- 触发攻击判定特效
-    attack_active_effect_manager:on_attack_activate(attack_work, weapon_type)
+    attack_active_effect_manager:on_attack_activate(work, core._wep_type)
 end
 
 -- 钩子：攻击判定销毁（攻击判定结束时触发）
 ---@param args table 钩子参数
 function effects.hook_pre_attack_work_destroy(args)
-    local attack_work = sdk.to_managed_object(args[2])
+    local attack_work = master_attack_work(args)
     if not attack_work then return end
 
     -- 回收攻击判定特效
     attack_active_effect_manager:on_attack_destroy(attack_work)
+    attack_active_effect_manager:destroy_timed_attack(attack_work)
 end
 
 -- ============================================================================

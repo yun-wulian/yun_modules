@@ -23,6 +23,7 @@ local enemy = require("yunwulian.yun_modules.enemy")
 yun_modules.constant = constant  -- 常量模块
 yun_modules.weapon_type = core.weapon_type
 yun_modules.direction = core.direction
+yun_modules.move_direction_mode = constant.move_direction_mode
 yun_modules.isCmd = constant.isCmd  -- 按键命令枚举（用于 targetCmd）
 yun_modules.isOn = constant.isOn    -- 按键状态枚举（用于 isHolding）
 yun_modules.commandFsm = constant.commandFsm  -- FSM命令枚举（用于 needIgnoreOriginalKey）
@@ -170,16 +171,20 @@ action.on_action_change(derive.on_action_change)
 
 -- 注册任务状态改变回调（清除特效缓存）
 state.on_quest_change(effects.clear_validity_cache)
+state.on_quest_change(effects.clear_attack_effects)
 state.on_quest_change(function() slowmo.stop(nil, "quest_change") end)
 
 -- 独立于 HUD 和主循环早退执行，玩家消失时仍能恢复全局时间。
 re.on_application_entry("UpdateScene", slowmo.update)
 re.on_script_reset(function() slowmo.stop(nil, "script_reset") end)
+re.on_script_reset(effects.clear_attack_effects)
 
 -- 主循环
 re.on_pre_application_entry("UpdateScene", function()
     -- Find master player
-    if not core.find_master_player() then
+    local has_player = core.find_master_player()
+    effects.update_attack_effect_lifecycle()
+    if not has_player then
         return
     end
 

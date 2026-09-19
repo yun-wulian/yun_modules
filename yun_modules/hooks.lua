@@ -141,18 +141,10 @@ local post_hook_radial_blur_apply = function(retval)
 end
 
 local pre_hook_attack_work_activate = function(args)
-    local this = sdk.to_managed_object(args[2])
-    if core.master_player ~= nil and core.master_player:getRSCController() ~= this:get_RSCCtrl() then
-        return
-    end
     effects.hook_pre_attack_work_activate(args)
 end
 
 local pre_hook_attack_work_destroy = function(args)
-    local this = sdk.to_managed_object(args[2])
-    if core.master_player ~= nil and core.master_player:getRSCController() ~= this:get_RSCCtrl() then
-        return
-    end
     effects.hook_pre_attack_work_destroy(args)
 end
 
@@ -168,6 +160,12 @@ function hooks.enable()
 
     -- 钩子：动作ID改变检测
     sdk.hook(sdk.find_type_definition("snow.player.PlayerMotionControl"):get_method("lateUpdate"), pre_hook_late_update)
+
+    local character_type = sdk.find_type_definition("snow.CharacterBase")
+    sdk.hook(character_type:get_method("motionUpdateEventMotionBegin(via.GameObject)"),
+        action.hook_pre_motion_begin, action.hook_post_motion_begin)
+    sdk.hook(character_type:get_method("motionRootApplyEvent(via.vec3, via.Quaternion)"),
+        action.hook_pre_root_apply, action.hook_post_root_apply)
 
     -- 钩子：会心率控制
     sdk.hook(sdk.find_type_definition("snow.player.PlayerBase"):get_method("calcTotalAffinity"), pre_hook_calc_total_affinity, post_hook_calc_total_affinity)
@@ -214,11 +212,17 @@ function hooks.enable()
     -- 钩子：径向模糊 - 应用参数
     sdk.hook(sdk.find_type_definition("snow.SnowPostEffectParam.SnowLDRPostProcess"):get_method("applyParameters"), pre_hook_radial_blur_apply, post_hook_radial_blur_apply)
 
+    local attack_work_type = sdk.find_type_definition("snow.hit.AttackWork")
+    sdk.hook(attack_work_type:get_method("initialize(System.Single, System.Single, System.UInt32, System.UInt32, System.Int32, snow.hit.userdata.BaseHitAttackRSData)"),
+        effects.hook_pre_attack_work_initialize, effects.hook_post_attack_work_initialize)
+    sdk.hook(sdk.find_type_definition("snow.RSCController"):get_method("updateAttackWorks()"),
+        effects.hook_pre_update_attack_works, effects.hook_post_update_attack_works)
+
     -- 钩子：攻击判定激活（攻击判定产生时触发，会持续调用）
-    sdk.hook(sdk.find_type_definition("snow.hit.AttackWork"):get_method("activate"), pre_hook_attack_work_activate)
+    sdk.hook(attack_work_type:get_method("activate"), pre_hook_attack_work_activate)
 
     -- 钩子：攻击判定销毁（攻击判定结束时触发）
-    sdk.hook(sdk.find_type_definition("snow.hit.AttackWork"):get_method("destroy"), pre_hook_attack_work_destroy)
+    sdk.hook(attack_work_type:get_method("destroy"), pre_hook_attack_work_destroy)
 
     enabled = true
 end
