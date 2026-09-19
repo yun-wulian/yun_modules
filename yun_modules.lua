@@ -13,6 +13,7 @@ local action = require("yunwulian.yun_modules.action")
 local input = require("yunwulian.yun_modules.input")
 local state = require("yunwulian.yun_modules.state")
 local effects = require("yunwulian.yun_modules.effects")
+local slowmo = require("yunwulian.yun_modules.slowmo")
 local derive = require("yunwulian.yun_modules.derive")
 local hooks = require("yunwulian.yun_modules.hooks")
 local ui = require("yunwulian.yun_modules.ui")
@@ -97,6 +98,11 @@ yun_modules.should_draw_ui = state.should_draw_ui
 -- 导出特效相关函数
 yun_modules.set_effect = effects.set_effect
 yun_modules.set_effect_with_instance = effects.set_effect_with_instance
+yun_modules.set_effect_at_position = effects.set_effect_at_position
+yun_modules.register_slowmo = slowmo.register
+yun_modules.trigger_slowmo = slowmo.trigger
+yun_modules.stop_slowmo = slowmo.stop
+yun_modules.is_slowmo_active = slowmo.is_active
 yun_modules.set_camera_vibration = effects.set_camera_vibration
 yun_modules.set_pad_vibration = effects.set_pad_vibration
 
@@ -164,6 +170,11 @@ action.on_action_change(derive.on_action_change)
 
 -- 注册任务状态改变回调（清除特效缓存）
 state.on_quest_change(effects.clear_validity_cache)
+state.on_quest_change(function() slowmo.stop(nil, "quest_change") end)
+
+-- 独立于 HUD 和主循环早退执行，玩家消失时仍能恢复全局时间。
+re.on_application_entry("UpdateScene", slowmo.update)
+re.on_script_reset(function() slowmo.stop(nil, "script_reset") end)
 
 -- 主循环
 re.on_pre_application_entry("UpdateScene", function()

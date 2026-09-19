@@ -3,6 +3,8 @@
 
 local core = {}
 local constant = require("yunwulian.yun_modules.constant")
+local enemy_type = sdk.typeof("snow.enemy.EnemyCharacterBase")
+local enemy_shell_type = sdk.typeof("snow.shell.EnemyShellBase")
 
 -- 引用常量模块的枚举
 core.weapon_type = constant.weapon_type
@@ -161,7 +163,12 @@ function core.find_master_player()
     end
     if not core.PlayerManager then return false end
 
+    local previous_player = core.master_player
     core.master_player = core.PlayerManager:findMasterPlayer()
+    if core.master_player ~= previous_player then
+        core._last_attacker_enemy = nil
+        core._last_attacker_enemy_include_shell = nil
+    end
     if not core.master_player or not core.master_player:isMasterPlayer() then
         core.master_player = nil
         return false
@@ -229,14 +236,17 @@ function core.hook_pre_late_update(args)
             end
         end
 
-        if core._action_id ~= this:get_field("_OldMotionID") then
+        local action_id = this:get_field("_OldMotionID")
+        local bank_id = this:get_field("_OldBankID")
+        local changed = core._action_id ~= action_id or core._action_bank_id ~= bank_id
+        core._action_bank_id = bank_id
+        if changed then
             core._pre_action_id = core._action_id
-            core._action_id = this:get_field("_OldMotionID")
+            core._action_id = action_id
 
             -- 触发动作改变回调
             core.trigger_action_change_callbacks()
         end
-        core._action_bank_id = this:get_field("_OldBankID")
     end
 end
 
@@ -292,40 +302,36 @@ end
 ---@param args table 钩子参数
 function core.hook_pre_check_calc_damage(args)
     local storage = thread.get_hook_storage()
+    storage.damage_context = nil
+    local target = sdk.to_managed_object(args[2])
+    if not target or not target:isMasterPlayer() then return end
+
     local hitInfo = sdk.to_managed_object(args[3])
-
-    storage["refPlayer"] = sdk.to_managed_object(args[2])
-
+    if not hitInfo then return end
     local damageData = hitInfo:get_AttackData()
-    storage["damageData"] = damageData
-
-    -- 提取攻击者怪物实例；默认只记录怪物本体攻击，includeShell 缓存额外包含投射体攻击
+    if not damageData then return end
+    local ownerType = damageData:get_OwnerType()
     local attackObject = hitInfo:get_AttackObject()
-    if attackObject and damageData then
-        local ownerType = damageData:get_OwnerType()
-        local enemyCharacter = attackObject:getComponent(
-            sdk.typeof("snow.enemy.EnemyCharacterBase"))
-
-        if ownerType == 1 then  -- 1 = Enemy (真实怪物)
-            if enemyCharacter then
-                storage["attackerEnemy"] = enemyCharacter
-                core._last_attacker_enemy = enemyCharacter
-                core._last_attacker_enemy_include_shell = enemyCharacter
-            end
-        elseif ownerType == 2 then  -- 2 = EnemyShell (远程攻击)
-            core._last_attacker_enemy_include_shell = enemyCharacter
-            -- 清空默认攻击者，避免旧反击逻辑把远程攻击当作近身攻击
-            storage["attackerEnemy"] = nil
-            core._last_attacker_enemy = nil
+    local enemy, shell_enemy
+    if ownerType == 1 and attackObject then -- HitOwnerType.Enemy；2 是 Player
+        enemy = attackObject:getComponent(enemy_type)
+        if not enemy then
+            local shell = attackObject:getComponent(enemy_shell_type)
+            if shell then shell_enemy = shell:get_ParentEnemy() end
         end
     end
-end
+    core._last_attacker_enemy = enemy
+    core._last_attacker_enemy_include_shell = enemy or shell_enemy
 
-function core.hook_post_check_calc_damage(retval)
-    if not thread.get_hook_storage()["refPlayer"]:isMasterPlayer() then
-        return retval
-    end
-    return retval
+    -- 坐标属于本次受击；复制值，不能保留引擎可能复用的 HitInfo。
+    local position = hitInfo:get_Position()
+    storage.damage_context = {
+        player = target,
+        owner_type = ownerType,
+        enemy = enemy,
+        enemy_include_shell = enemy or shell_enemy,
+        position = Vector3f.new(position.x, position.y, position.z),
+    }
 end
 
 -- ============================================================================

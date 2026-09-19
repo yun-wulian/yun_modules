@@ -406,16 +406,18 @@ end
 ---@param action_id number|table 动作ID（单个或表格形式 {100, 101, 102}）
 ---@param counter_count number 可抵挡次数
 ---@param frame_range table {开始帧, 结束帧}
----@param callback function|nil 每次抵挡时的回调函数（可选）
+---@param callback function|nil callback(context)：本次受击的 player、enemy、position、owner_type
+---@param scope table|nil 可选限制：weapon_type、bank_id、owner_type
 ---@return number 返回注册的ID，用于后续移除
-function derive.add_counter(action_id, counter_count, frame_range, callback)
+function derive.add_counter(action_id, counter_count, frame_range, callback, scope)
     local id = derive._counterNextId
     derive._counterNextId = derive._counterNextId + 1
     derive.counter_registry[id] = {
         action_id = action_id,
         max_count = counter_count,
         frame_range = frame_range,
-        callback = callback
+        callback = callback,
+        scope = scope,
     }
     return id
 end
@@ -439,14 +441,16 @@ end
 ---@param action_id number|table 动作ID（单个或表格形式 {100, 101, 102}）
 ---@param counter_count number 可抵挡次数
 ---@param frame_range table {开始帧, 结束帧}
----@param callback function|nil 每次抵挡时的回调函数（可选）
-function derive.set_counter(key, action_id, counter_count, frame_range, callback)
+---@param callback function|nil callback(context)：本次受击的 player、enemy、position、owner_type
+---@param scope table|nil 可选限制：weapon_type、bank_id、owner_type
+function derive.set_counter(key, action_id, counter_count, frame_range, callback, scope)
     -- 使用字符串key作为ID，直接覆盖
     derive.counter_registry[key] = {
         action_id = action_id,
         max_count = counter_count,
         frame_range = frame_range,
-        callback = callback
+        callback = callback,
+        scope = scope,
     }
 end
 
@@ -762,7 +766,8 @@ local function activate_counters_for_action()
             derive._active_counters[reg_id] = {
                 remaining_count = counter_config.max_count,
                 frame_range = counter_config.frame_range,
-                callback = counter_config.callback
+                callback = counter_config.callback,
+                scope = counter_config.scope,
             }
         end
     end
@@ -771,7 +776,14 @@ end
 --- 内部函数：处理独立反击检测
 --- 在受伤检测钩子中调用
 ---@return number|nil 返回2表示抵挡伤害，nil表示不处理
-local function process_counter_damage()
+local function counter_matches_scope(scope, context)
+    if not scope then return true end
+    return (scope.weapon_type == nil or scope.weapon_type == context.player:get_field("_playerWeaponType"))
+        and (scope.bank_id == nil or scope.bank_id == core._action_bank_id)
+        and (scope.owner_type == nil or scope.owner_type == context.owner_type)
+end
+
+local function process_counter_damage(context)
     -- 检查是否有活跃的反击配置
     if next(derive._active_counters) == nil then
         return nil
@@ -782,14 +794,15 @@ local function process_counter_damage()
     for _, active_counter in pairs(derive._active_counters) do
         local frame_range = active_counter.frame_range
         -- 检查帧数范围
-        if current_frame >= (frame_range[1] + 0.0) and current_frame <= (frame_range[2] + 0.0) then
+        if counter_matches_scope(active_counter.scope, context)
+            and current_frame >= frame_range[1] and current_frame <= frame_range[2] then
             -- 检查剩余次数
             if active_counter.remaining_count > 0 then
                 active_counter.remaining_count = active_counter.remaining_count - 1
 
                 -- 调用回调函数
                 if active_counter.callback and type(active_counter.callback) == "function" then
-                    local success, err = pcall(active_counter.callback)
+                    local success, err = pcall(active_counter.callback, context)
                     if not success then
                         table.insert(error_messages, "Counter callback error: " .. tostring(err))
                     end
@@ -1926,10 +1939,13 @@ end
 ---@param retval any 返回值
 ---@return any 修改后的返回值
 function derive.hook_post_check_calc_damage(retval)
-    local dmgOwnerType = thread.get_hook_storage()["damageData"]:get_OwnerType()
+    local context = thread.get_hook_storage().damage_context
+    if not context then return retval end
+    if sdk.to_int64(retval) == 2 then return retval end -- 已忽略并记录 HitID，不重复消耗反击。
+    local dmgOwnerType = context.owner_type
     if (dmgOwnerType == 1 or dmgOwnerType == 0) then
         -- 优先检查独立反击系统（Counter API）
-        local counter_result = process_counter_damage()
+        local counter_result = process_counter_damage(context)
         if counter_result then
             return sdk.to_ptr(counter_result)
         end

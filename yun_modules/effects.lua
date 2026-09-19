@@ -381,6 +381,33 @@ end
 -- 对外公开的特效 API
 -- ============================================================================
 
+local request_position_effect = sdk.find_type_definition("via.effect.script.ObjectEffectManager"):get_method(
+    "requestEffect(via.effect.script.EffectID, via.vec3, via.Quaternion, via.GameObject, System.String, via.effect.script.EffectManager.WwiseTriggerInfo)")
+local identity_rotation = Quaternion.identity()
+local position_effect_ids = {}
+
+-- 世界坐标定点特效，不附着骨骼；返回创建结果，是否循环由特效资源决定。
+-- SingleEffectCallPacket 不携带坐标，所以此 API 不发送玩家位置特效的同步包。
+function effects.set_effect_at_position(container, efx, position)
+    if not core.master_player or not core.master_player:isMasterPlayer() then return nil end
+    if not effects.is_effect_exists(container, efx) then return nil end
+    local manager = core.master_player:getObjectEffectManager()
+    if not manager then return nil end
+
+    local ids = position_effect_ids[container]
+    if not ids then
+        ids = {}
+        position_effect_ids[container] = ids
+    end
+    local id = ids[efx]
+    if not id then
+        id = sdk.create_instance("via.effect.script.EffectID", true):add_ref()
+        id.ContainerID, id.ElementID = container, efx
+        ids[efx] = id
+    end
+    return request_position_effect:call(manager, id, position, identity_rotation, nil, nil, nil)
+end
+
 -- 内部函数：发送特效同步网络包
 ---@param container number 容器ID
 ---@param efx number 特效ID
@@ -1296,9 +1323,6 @@ end
 
 local EffectExecutor = {}
 
--- 复用的Vector3f对象（用于命中特效计算，避免频繁创建）
-local reused_up_vector = Vector3f.new(0, 1, 0)
-
 -- 在玩家位置生成特效（内部使用，调用公开 API 以获得同步）
 ---@param container number 容器ID
 ---@param effect number 特效ID
@@ -1325,29 +1349,7 @@ end
 ---@param container number 容器ID
 ---@param effect number 特效ID
 function EffectExecutor.set_hit_effect(hit_position, container, effect)
-    if not core.master_player then
-        return
-    end
-    if not effects.is_effect_exists(container, effect) then
-        return
-    end
-
-    local effectContainer = sdk.create_instance("via.effect.script.EffectID", true):add_ref()
-    effectContainer.ContainerID = container
-    effectContainer.ElementID = effect
-
-    local eff_manager = core.master_player:getObjectEffectManager()
-    if not eff_manager then
-        return
-    end
-
-    eff_manager:call(
-        "requestEffect(via.effect.script.EffectID, via.vec3, via.Quaternion, via.GameObject, System.String, via.effect.script.EffectManager.WwiseTriggerInfo)",
-        effectContainer,
-        hit_position,
-        hit_position:cross(reused_up_vector):to_quat(),
-        nil, nil, nil
-    )
+    if not effects.set_effect_at_position(container, effect, hit_position) then return end
 
     -- 同步给队友（使用内部函数直接发送）
     send_effect_sync_packet(container, effect)

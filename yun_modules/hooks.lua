@@ -105,15 +105,10 @@ local post_hook_fsm_command_evaluate = function(retval)
 end
 
 local pre_hook_check_calc_damage = function(args)
-    local storage = thread.get_hook_storage()
-    storage["Player"] = sdk.to_managed_object(args[2])
     return core.hook_pre_check_calc_damage(args)
 end
 
 local post_hook_check_calc_damage = function(retval)
-    if not thread.get_hook_storage()["Player"]:isMasterPlayer() then
-        return retval
-    end
     return derive.hook_post_check_calc_damage(retval)
 end
 
