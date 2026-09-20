@@ -406,7 +406,7 @@ end
 ---@param action_id number|table 动作ID（单个或表格形式 {100, 101, 102}）
 ---@param counter_count number 可抵挡次数
 ---@param frame_range table {开始帧, 结束帧}
----@param callback function|nil callback(context)：本次受击的 player、enemy、position、owner_type
+---@param callback function|nil callback(context)：本次受击的 player、enemy、position、owner_type、attack_collider
 ---@param scope table|nil 可选限制：weapon_type、bank_id、owner_type、enemy_body_only（仅怪物本体命中）
 ---@return number 返回注册的ID，用于后续移除
 function derive.add_counter(action_id, counter_count, frame_range, callback, scope)
@@ -441,7 +441,7 @@ end
 ---@param action_id number|table 动作ID（单个或表格形式 {100, 101, 102}）
 ---@param counter_count number 可抵挡次数
 ---@param frame_range table {开始帧, 结束帧}
----@param callback function|nil callback(context)：本次受击的 player、enemy、position、owner_type
+---@param callback function|nil callback(context)：本次受击的 player、enemy、position、owner_type、attack_collider
 ---@param scope table|nil 可选限制：weapon_type、bank_id、owner_type、enemy_body_only（仅怪物本体命中）
 function derive.set_counter(key, action_id, counter_count, frame_range, callback, scope)
     -- 使用字符串key作为ID，直接覆盖

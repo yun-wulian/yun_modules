@@ -325,11 +325,13 @@ function core.hook_pre_check_calc_damage(args)
 
     -- 坐标属于本次受击；复制值，不能保留引擎可能复用的 HitInfo。
     local position = hitInfo:get_Position()
+    local shapeInfo = hitInfo:get_HitDamageShapeInfo()
     storage.damage_context = {
         player = target,
         owner_type = ownerType,
         enemy = enemy,
         enemy_include_shell = enemy or shell_enemy,
+        attack_collider = shapeInfo and shapeInfo:get_AttackCollider(),
         position = Vector3f.new(position.x, position.y, position.z),
     }
 end
