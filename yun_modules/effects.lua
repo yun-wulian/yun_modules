@@ -395,10 +395,7 @@ local request_position_effect = sdk.find_type_definition("via.effect.script.Obje
 local identity_rotation = Quaternion.identity()
 local position_effect_ids = {}
 
--- 世界坐标特效；可传入 follow_target、follow_joint 交给引擎跟随指定骨骼。
--- 返回创建结果，是否循环由特效资源决定。
--- SingleEffectCallPacket 不携带坐标，所以此 API 不发送玩家位置特效的同步包。
-function effects.set_effect_at_position(container, efx, position, follow_target, follow_joint)
+local function request_effect(container, efx, position, follow_target, follow_joint)
     if not core.master_player or not core.master_player:isMasterPlayer() then return nil end
     if not effects.is_effect_exists(container, efx) then return nil end
     local manager = core.master_player:getObjectEffectManager()
@@ -416,6 +413,16 @@ function effects.set_effect_at_position(container, efx, position, follow_target,
         ids[efx] = id
     end
     return request_position_effect:call(manager, id, position, identity_rotation, follow_target, follow_joint, nil)
+end
+
+-- 世界坐标定点特效；不发送缺少坐标信息的 SingleEffectCallPacket。
+function effects.set_effect_at_position(container, efx, position)
+    return request_effect(container, efx, position, nil, nil)
+end
+
+-- 原生 requestEffect 绑定父对象/骨骼时，位置和旋转使用父空间。
+function effects.set_effect_at_joint(container, efx, target, joint_name, local_position)
+    return request_effect(container, efx, local_position, target, joint_name)
 end
 
 -- 内部函数：发送特效同步网络包

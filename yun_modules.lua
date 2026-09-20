@@ -100,6 +100,7 @@ yun_modules.should_draw_ui = state.should_draw_ui
 yun_modules.set_effect = effects.set_effect
 yun_modules.set_effect_with_instance = effects.set_effect_with_instance
 yun_modules.set_effect_at_position = effects.set_effect_at_position
+yun_modules.set_effect_at_joint = effects.set_effect_at_joint
 yun_modules.register_slowmo = slowmo.register
 yun_modules.trigger_slowmo = slowmo.trigger
 yun_modules.stop_slowmo = slowmo.stop
