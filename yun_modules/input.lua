@@ -20,10 +20,12 @@ end
 
 -- 将角色转向摇杆方向，带角度范围限制
 ---@param range number 转向范围
-function input.turn_to_lstick_dir(range)
-    if not core.master_player then return end
-    local ref_player_input = core.master_player:get_RefPlayerInput()
-    local ref_angle_ctrl = core.master_player:get_RefAngleCtrl()
+---@param player? REManagedObject 目标角色，默认主玩家
+function input.turn_to_lstick_dir(range, player)
+    player = player or core.master_player
+    if not player then return end
+    local ref_player_input = player:get_RefPlayerInput()
+    local ref_angle_ctrl = player:get_RefAngleCtrl()
     if not ref_player_input or not ref_angle_ctrl then return end
 
     -- 检查摇杆是否被推动
